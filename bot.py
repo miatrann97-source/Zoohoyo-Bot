@@ -127,158 +127,442 @@ WORDCHAIN_FILE = "wordchain.json"
 
 # Từ điển nhỏ để bot nối tiếp: chữ bắt đầu -> cụm 2 từ bot sẽ dùng
 WORD_BANK = {
-    "mốt": ["mốt mới", "mốt thời thượng"],
-    "một": ["một mình", "một ngày", "một lần"],
-    "mai": ["mai mốt", "mai sau", "mai này"],
-    "sang": ["sang mai", "sang trọng", "sang chảnh"],
-    "trang": ["trang sang", "trang điểm", "trang sức"],
-    "mới": ["mới mẻ", "mới lạ"],
-    "mình": ["mình ơi", "mình mẩy"],
-    "ngày": ["ngày mai", "ngày mới", "ngày nắng"],
-    "lần": ["lần sau", "lần đầu"],
-    "sau": ["sau này", "sau đó"],
-    "này": ["này nhé", "này nè"],
-    "trọng": ["trọng lượng", "trọng tài"],
-    "chảnh": ["chảnh chọe"],
-    "điểm": ["điểm danh", "điểm cao"],
-    "sức": ["sức khỏe", "sức mạnh"],
-    "mẻ": ["mẻ lưới"],
-    "lạ": ["lạ lẫm", "lạ thường"],
-    "ơi": ["ơi là ơi"],
-    "mẩy": ["mẩy mập"],
-    "nắng": ["nắng mai", "nắng vàng"],
-    "vàng": ["vàng óng", "vàng tươi"],
-    "đầu": ["đầu tiên", "đầu năm"],
-    "đó": ["đó nha", "đó rồi"],
-    "nữa": ["nữa nhé"],
-    "cá": ["cá heo", "cá chép", "cá bơi"],
-    "heo": ["heo hồng", "heo con"],
-    "chép": ["chép bài"],
-    "bơi": ["bơi lội"],
-    "hồng": ["hồng hào", "hồng phấn"],
-    "con": ["con mèo", "con cá", "con chó"],
-    "mèo": ["mèo mun", "mèo con"],
-    "chó": ["chó cưng"],
-    "mun": ["mun đen"],
-    "đen": ["đen thui"],
-    "thui": ["thui thủi"],
-    "cưng": ["cưng xỉu"],
-    "xỉu": ["xỉu ngang"],
-    "ngang": ["ngang nhiên"],
-    "nhiên": ["nhiên liệu"],
-    "liệu": ["liệu hồn"],
-    "hồn": ["hồn nhiên"],
-    "lội": ["lội nước"],
-    "nước": ["nước mắt", "nước biển"],
-    "mắt": ["mắt cười"],
-    "biển": ["biển xanh"],
-    "xanh": ["xanh lá", "xanh dương"],
-    "lá": ["lá cây"],
-    "cây": ["cây xanh"],
-    "dương": ["dương gian"],
-    "gian": ["gian nan"],
-    "nan": ["nan giải"],
-    "giải": ["giải trí"],
-    "trí": ["trí tuệ"],
-    "tuệ": ["tuệ minh"],
-    "minh": ["minh mẫn"],
-    "mẫn": ["mẫn cảm"],
-    "cảm": ["cảm ơn", "cảm xúc"],
-    "ơn": ["ơn huệ"],
-    "xúc": ["xúc động"],
-    "động": ["động viên"],
-    "viên": ["viên mãn"],
-    "mãn": ["mãn nguyện"],
-    "nguyện": ["nguyện ước"],
-    "ước": ["ước mơ"],
-    "mơ": ["mơ mộng"],
-    "mộng": ["mộng mơ"],
-    "cười": ["cười tươi"],
-    "tươi": ["tươi cười", "tươi tắn"],
-    "tắn": ["tắn tắn"],
-    "bài": ["bài học"],
-    "học": ["học bài", "học giỏi"],
-    "giỏi": ["giỏi giang"],
-    "giang": ["giang hồ"],
-    "hồ": ["hồ bơi"],
-    "phấn": ["phấn khởi"],
-    "khởi": ["khởi đầu"],
-    "hào": ["hào hứng"],
-    "hứng": ["hứng thú"],
-    "thú": ["thú vị"],
-    "vị": ["vị ngọt"],
-    "ngọt": ["ngọt ngào"],
-    "ngào": ["ngào ngạt"],
-    "ngạt": ["ngạt thở"],
-    "thở": ["thở dài"],
-    "dài": ["dài lâu"],
-    "lâu": ["lâu rồi"],
-    "rồi": ["rồi nhé"],
-    "nhé": ["nhé An"],
-    "thủ": ["thủ thỉ"],
-    "thỉ": ["thỉ thầm"],
-    "thầm": ["thầm lặng"],
-    "lặng": ["lặng thinh"],
-    "ninh": ["ninh bình"],
-    "bình": ["bình yên", "bình thường", "bình minh"],
-    "yên": ["yên bình", "yên tĩnh"],
-    "tĩnh": ["tĩnh lặng"],
-    "thường": ["thường ngày", "thường xuyên"],
-    "ngày": ["ngày mai", "ngày mới", "ngày nắng"],
-    "xuyên": ["xuyên suốt", "xuyên đêm"],
-    "suốt": ["suốt ngày"],
-    "đêm": ["đêm khuya", "đêm nay"],
-    "khuya": ["khuya rồi"],
-    "nay": ["nay mai"],
-    "không": ["không khí", "không gian", "không ngờ"],
-    "khí": ["khí hậu"],
-    "hậu": ["hậu quả"],
-    "quả": ["quả ngọt"],
-    "gian": ["gian nan"],
-    "ngờ": ["ngờ vực"],
-    "vực": ["vực sâu"],
-    "sâu": ["sâu sắc"],
-    "sắc": ["sắc đẹp", "sắc màu"],
-    "đẹp": ["đẹp trai", "đẹp gái"],
-    "trai": ["trai trẻ"],
-    "gái": ["gái xinh"],
-    "xinh": ["xinh đẹp", "xinh xắn"],
-    "trẻ": ["trẻ con", "trẻ trung"],
-    "trung": ["trung thành"],
-    "thành": ["thành công"],
-    "công": ["công việc"],
-    "việc": ["việc làm"],
-    "làm": ["làm việc"],
-    "tây": ["tây ninh", "tây bắc"],
-    "bắc": ["bắc ninh"],
-    "tươi": ["tươi cười"],
-    "ngon": ["ngon miệng"],
-    "miệng": ["miệng cười"],
-    "sáng": ["sáng mai", "sáng sớm"],
-    "sớm": ["sớm mai"],
-    "vui": ["vui vẻ", "vui chơi"],
-    "vẻ": ["vẻ đẹp"],
-    "chơi": ["chơi game"],
-    "game": ["game hay"],
-    "hay": ["hay ho"],
-    "ho": ["ho hen"],
-    "hen": ["hen hò"],
-    "hò": ["hò hẹn"],
-    "hẹn": ["hẹn hò"],
-    "tốt": ["tốt bụng"],
-    "bụng": ["bụng đói"],
-    "đói": ["đói bụng"],
-    "lớn": ["lớn lên"],
-    "lên": ["lên cao"],
-    "cao": ["cao lớn"],
-    "nhỏ": ["nhỏ xinh"],
-    "nhanh": ["nhanh nhẹn"],
-    "nhẹn": ["nhẹn nhàng"],
-    "nhàng": ["nhàng nhàng"],
-    "thơm": ["thơm ngon"],
-    "mới": ["mới mẻ", "mới lạ"],
-    "thinh": ["thinh lặng"],
+    "an": [
+        "an toàn",
+        "an ninh",
+        "an tâm"
+    ],
+    "anh": [
+        "anh em",
+        "anh hùng"
+    ],
+    "ba": [
+        "ba mẹ",
+        "ba lô"
+    ],
+    "bạc": [
+        "bạc màu"
+    ],
+    "bài": [
+        "bài học",
+        "bài hát"
+    ],
+    "bạn": [
+        "bạn bè",
+        "bạn thân"
+    ],
+    "bán": [
+        "bán hàng"
+    ],
+    "bao": [
+        "bao giờ",
+        "bao nhiêu"
+    ],
+    "bảo": [
+        "bảo vệ"
+    ],
+    "bắc": [
+        "bắc ninh"
+    ],
+    "bắt": [
+        "bắt đầu"
+    ],
+    "bình": [
+        "bình yên"
+    ],
+    "biển": [
+        "biển xanh",
+        "biển cả"
+    ],
+    "biết": [
+        "biết ơn"
+    ],
+    "bỏ": [
+        "bỏ qua"
+    ],
+    "bóng": [
+        "bóng đá"
+    ],
+    "bơi": [
+        "bơi lội"
+    ],
+    "bốn": [
+        "bốn mùa"
+    ],
+    "buổi": [
+        "buổi sáng",
+        "buổi tối"
+    ],
+    "cá": [
+        "cá heo",
+        "cá chép"
+    ],
+    "cảm": [
+        "cảm ơn",
+        "cảm xúc"
+    ],
+    "cao": [
+        "cao lớn",
+        "cao cấp"
+    ],
+    "cây": [
+        "cây xanh",
+        "cây cối"
+    ],
+    "chào": [
+        "chào hỏi"
+    ],
+    "chạy": [
+        "chạy bộ"
+    ],
+    "chăm": [
+        "chăm chỉ"
+    ],
+    "chân": [
+        "chân thành"
+    ],
+    "chị": [
+        "chị em"
+    ],
+    "chiều": [
+        "chiều nay"
+    ],
+    "chơi": [
+        "chơi game",
+        "chơi đùa"
+    ],
+    "chó": [
+        "chó cưng"
+    ],
+    "chung": [
+        "chung tay"
+    ],
+    "chuyện": [
+        "chuyện trò"
+    ],
+    "công": [
+        "công việc",
+        "công ty"
+    ],
+    "con": [
+        "con mèo",
+        "con cá",
+        "con người"
+    ],
+    "cười": [
+        "cười tươi"
+    ],
+    "cuối": [
+        "cuối tuần"
+    ],
+    "dài": [
+        "dài lâu"
+    ],
+    "dân": [
+        "dân chủ"
+    ],
+    "dạy": [
+        "dạy học"
+    ],
+    "dễ": [
+        "dễ thương"
+    ],
+    "đẹp": [
+        "đẹp trai",
+        "đẹp gái",
+        "đẹp mắt"
+    ],
+    "đêm": [
+        "đêm khuya",
+        "đêm nay"
+    ],
+    "đến": [
+        "đến nơi"
+    ],
+    "đi": [
+        "đi chơi",
+        "đi học"
+    ],
+    "điện": [
+        "điện thoại"
+    ],
+    "đỏ": [
+        "đỏ tươi"
+    ],
+    "đói": [
+        "đói bụng"
+    ],
+    "đồng": [
+        "đồng hồ"
+    ],
+    "đông": [
+        "đông vui"
+    ],
+    "đời": [
+        "đời sống"
+    ],
+    "đủ": [
+        "đủ đầy"
+    ],
+    "đường": [
+        "đường phố"
+    ],
+    "em": [
+        "em gái",
+        "em trai"
+    ],
+    "gái": [
+        "gái xinh"
+    ],
+    "game": [
+        "game hay"
+    ],
+    "gió": [
+        "gió mát"
+    ],
+    "giỏi": [
+        "giỏi giang"
+    ],
+    "giấc": [
+        "giấc mơ"
+    ],
+    "hạnh": [
+        "hạnh phúc"
+    ],
+    "hay": [
+        "hay ho"
+    ],
+    "học": [
+        "học bài",
+        "học giỏi"
+    ],
+    "hồng": [
+        "hồng hào"
+    ],
+    "hôm": [
+        "hôm nay",
+        "hôm qua"
+    ],
+    "hứng": [
+        "hứng thú"
+    ],
+    "khí": [
+        "khí hậu"
+    ],
+    "không": [
+        "không khí",
+        "không gian",
+        "không ngờ"
+    ],
+    "khỏe": [
+        "khỏe mạnh"
+    ],
+    "khuya": [
+        "khuya rồi"
+    ],
+    "làm": [
+        "làm việc"
+    ],
+    "lần": [
+        "lần sau",
+        "lần đầu"
+    ],
+    "lá": [
+        "lá cây"
+    ],
+    "lâu": [
+        "lâu rồi"
+    ],
+    "lớn": [
+        "lớn lên"
+    ],
+    "mai": [
+        "mai mốt",
+        "mai sau"
+    ],
+    "màu": [
+        "màu sắc"
+    ],
+    "may": [
+        "may mắn"
+    ],
+    "mắn": [
+        "mắn đẻ"
+    ],
+    "mắt": [
+        "mắt cười"
+    ],
+    "máy": [
+        "máy tính"
+    ],
+    "mẹ": [
+        "mẹ hiền"
+    ],
+    "mèo": [
+        "mèo mun",
+        "mèo con"
+    ],
+    "mình": [
+        "mình ơi"
+    ],
+    "mới": [
+        "mới mẻ",
+        "mới lạ"
+    ],
+    "mốt": [
+        "mốt mới"
+    ],
+    "một": [
+        "một mình",
+        "một ngày"
+    ],
+    "mưa": [
+        "mưa rào"
+    ],
+    "mun": [
+        "mun đen"
+    ],
+    "nắng": [
+        "nắng mai",
+        "nắng vàng"
+    ],
+    "ngày": [
+        "ngày mai",
+        "ngày mới"
+    ],
+    "ngon": [
+        "ngon miệng"
+    ],
+    "ngủ": [
+        "ngủ ngon"
+    ],
+    "nhà": [
+        "nhà cửa"
+    ],
+    "nhanh": [
+        "nhanh nhẹn"
+    ],
+    "nhỏ": [
+        "nhỏ xinh"
+    ],
+    "ninh": [
+        "ninh bình"
+    ],
+    "nói": [
+        "nói chuyện"
+    ],
+    "nước": [
+        "nước mắt",
+        "nước biển"
+    ],
+    "ôn": [
+        "ôn bài"
+    ],
+    "phố": [
+        "phố xá"
+    ],
+    "qua": [
+        "qua lại"
+    ],
+    "quà": [
+        "quà tặng"
+    ],
+    "sáng": [
+        "sáng mai",
+        "sáng sớm"
+    ],
+    "sang": [
+        "sang mai",
+        "sang trọng"
+    ],
+    "sâu": [
+        "sâu sắc"
+    ],
+    "siêu": [
+        "siêu nhân"
+    ],
+    "sớm": [
+        "sớm mai"
+    ],
+    "tây": [
+        "tây ninh",
+        "tây bắc"
+    ],
+    "thành": [
+        "thành công"
+    ],
+    "thơm": [
+        "thơm ngon"
+    ],
+    "thường": [
+        "thường ngày",
+        "thường xuyên"
+    ],
+    "thú": [
+        "thú vị"
+    ],
+    "tiếng": [
+        "tiếng việt"
+    ],
+    "tối": [
+        "tối nay"
+    ],
+    "trà": [
+        "trà sữa"
+    ],
+    "trắng": [
+        "trắng tinh"
+    ],
+    "trẻ": [
+        "trẻ con",
+        "trẻ trung"
+    ],
+    "trời": [
+        "trời xanh"
+    ],
+    "trọng": [
+        "trọng lượng"
+    ],
+    "trưa": [
+        "trưa nay"
+    ],
+    "tươi": [
+        "tươi cười"
+    ],
+    "tuyết": [
+        "tuyết trắng"
+    ],
+    "vàng": [
+        "vàng óng"
+    ],
+    "vui": [
+        "vui vẻ",
+        "vui chơi"
+    ],
+    "xa": [
+        "xa xôi"
+    ],
+    "xanh": [
+        "xanh lá",
+        "xanh dương"
+    ],
+    "xinh": [
+        "xinh đẹp",
+        "xinh xắn"
+    ],
+    "xuyên": [
+        "xuyên suốt",
+        "xuyên đêm"
+    ],
+    "yên": [
+        "yên bình",
+        "yên tĩnh"
+    ],
+    "yêu": [
+        "yêu thương"
+    ]
 }
+
 
 
 def _norm(s):
@@ -289,18 +573,28 @@ def load_wordchain():
     try:
         with open(WORDCHAIN_FILE, "r", encoding="utf-8") as f:
             d = json.load(f)
-            return d.get("last", "mốt"), set(d.get("used", []))
+            last = d.get("last", "mốt")
+            return last, set(d.get("used", [])), d.get("last_phrase", "mai mốt")
     except (OSError, ValueError):
         # Trạng thái hôm 2026-11-05: trang sang -> sang mai -> mai mốt
-        return "mốt", {"trang sang", "sang mai", "mai mốt"}
+        return "mốt", {"trang sang", "sang mai", "mai mốt"}, "mai mốt"
 
 
-def save_wordchain(last, used):
+def save_wordchain(last, used, last_phrase=None):
     try:
         with open(WORDCHAIN_FILE, "w", encoding="utf-8") as f:
-            json.dump({"last": last, "used": sorted(used)}, f, ensure_ascii=False)
+            json.dump(
+                {"last": last, "used": sorted(used),
+                 "last_phrase": last_phrase or last},
+                f, ensure_ascii=False,
+            )
     except OSError:
         pass
+
+
+def _continuations(word, used):
+    """Các cụm chưa dùng mà bắt đầu bằng `word` — để bot tránh nối vào ngõ cụt."""
+    return [q for q in WORD_BANK.get(word, []) if q not in used]
 
 
 # --- Bot ---
@@ -352,14 +646,17 @@ async def on_message(message):
     if message.author.bot or message.channel.id != WORDCHAIN_CHANNEL_ID:
         return
     text = _norm(message.content)
-    if not text or text.startswith("/") or len(text.split()) > 4:
+    if not text or text.startswith("/") or text.startswith("!"):
         return
+    # Chỉ xử lý tin nhắn giống từ nối: 1-2 từ, không có link/emoji thừa
     words = text.split()
-    last, used = load_wordchain()
+    if len(words) > 2 or any(len(w) > 10 for w in words):
+        return
+    last, used, _phrase = load_wordchain()
     if words[0] != last:
         await message.channel.send(
-            f"Ui, từ phải bắt đầu bằng **{last}** nha {message.author.mention} 🥺 "
-            f"Từ trước là **{' '.join(used and [sorted(used)[-1]] or [])}** đó, thử lại đi!"
+            f"Chưa đúng nha {message.author.mention} 🥺 Từ phải bắt đầu bằng **{last}**, "
+            f"chứ không phải **{words[0]}**. Thử lại đi!"
         )
         return
     if text in used:
@@ -367,28 +664,29 @@ async def on_message(message):
             f"Từ **{text}** dùng rồi nè {message.author.mention}, nghĩ từ khác bắt đầu bằng **{last}** đi!"
         )
         return
+    # Từ hợp lệ: bot làm trọng tài, xác nhận và chuyển lượt, KHÔNG tự nối từ vô nghĩa
     used.add(text)
     new_last = words[-1]
-    save_wordchain(new_last, used)
-    # Bot nối tiếp bằng 1 cụm bắt đầu bằng chữ cuối của An / mọi người
-    options = [p for p in WORD_BANK.get(new_last, []) if p not in used]
-    if options:
-        reply = options[0]
-    else:
-        # Từ điển hết từ thì bot tự ghép 1 từ quen thuộc để game không đứt
-        for second in ["đẹp", "hay", "vui", "mới", "xinh", "tốt", "lớn", "nhỏ", "cao", "thơm", "ngon", "sáng", "tươi", "nhanh"]:
-            cand = f"{new_last} {second}"
-            if cand not in used:
-                reply = cand
-                break
-        else:
-            await message.channel.send(
-                f"Hay quá {message.author.mention}! Tới **{new_last}** là Bom bí rồi, ai nối tiếp giúp Bom đi 😭"
-            )
-            return
-    used.add(reply)
-    save_wordchain(reply.split()[-1], used)
-    await message.channel.send(reply)
+    save_wordchain(new_last, used, text)
+    await message.add_reaction("✅")
+    await message.channel.send(
+        f"Đúng rồi {message.author.mention}! ✅ Tới lượt tiếp theo, từ bắt đầu bằng **{new_last}** nha."
+    )
+
+
+@tree.command(name="goiy", description="Gợi ý 1 từ nối tiếp hợp lệ (từ điển thật)")
+async def goiy(interaction: discord.Interaction):
+    if interaction.channel_id != WORDCHAIN_CHANNEL_ID:
+        await interaction.response.send_message("Lệnh này chỉ dùng ở kênh khu-vui-choi thôi nha.", ephemeral=True)
+        return
+    last, used, _phrase = load_wordchain()
+    options = [w for w in WORD_BANK.get(last, []) if w not in used]
+    if not options:
+        await interaction.response.send_message(
+            f"Tới **{last}** là Bom cũng bí thật rồi, mọi người nghĩ giúp Bom đi 😅", ephemeral=False
+        )
+        return
+    await interaction.response.send_message(f"Gợi ý nè: **{options[0]}** — tới **{options[0].split()[-1]}** nha!")
 
 
 @tree.command(name="poststatus", description="Đặt bảng trạng thái Genshin ở kênh này")
