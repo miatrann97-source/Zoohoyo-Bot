@@ -695,7 +695,7 @@ async def on_ready():
                         json.dump({"guild_id": guild.id, "channel_id": ch.id}, f)
                     print(f"Đã vô kênh trend: {ch.name}")
                     await _play_next(guild.id, vc)
-                except discord.DiscordException as e:
+                except Exception as e:
                     print("Không vô kênh trend được:", e)
                 break
         if not found_trend:
