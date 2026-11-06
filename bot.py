@@ -47,7 +47,7 @@ from discord.ext import tasks
 
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-for _n in ("discord.voice_client", "discord.player", "discord.voice_state"):
+for _n in ("discord.voice_client", "discord.player", "discord.voice_state", "discord.gateway"):
     logging.getLogger(_n).setLevel(logging.DEBUG)
 
 # --- Cấu hình ---
@@ -1044,7 +1044,8 @@ async def _play_next_locked(guild_id, voice_client):
         g = client.get_guild(guild_id)
         vs = g.me.voice if g and g.me else None
         _sock = getattr(voice_client._connection, "socket", None)
-        print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} mode={voice_client.mode} dave={bool(voice_client._connection.dave_session)} can_encrypt={voice_client._connection.can_encrypt} sock_fileno={_sock.fileno() if _sock is not None and _sock is not discord.utils.MISSING else None} endpoint={voice_client.endpoint} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
+        _ds = voice_client._connection.dave_session
+        print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} mode={voice_client.mode} dave_proto={voice_client._connection.dave_protocol_version} dave_ready={_ds.ready if _ds else None} can_encrypt={voice_client._connection.can_encrypt} sock_fileno={_sock.fileno() if _sock is not None and _sock is not discord.utils.MISSING else None} endpoint={voice_client.endpoint} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
         break
     if guild_id in trend_mode:
         guild = client.get_guild(guild_id)
