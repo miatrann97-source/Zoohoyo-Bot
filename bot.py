@@ -219,6 +219,64 @@ WORD_BANK = {
     "thỉ": ["thỉ thầm"],
     "thầm": ["thầm lặng"],
     "lặng": ["lặng thinh"],
+    "ninh": ["ninh bình"],
+    "bình": ["bình yên", "bình thường", "bình minh"],
+    "yên": ["yên bình", "yên tĩnh"],
+    "tĩnh": ["tĩnh lặng"],
+    "thường": ["thường ngày", "thường xuyên"],
+    "ngày": ["ngày mai", "ngày mới", "ngày nắng"],
+    "xuyên": ["xuyên suốt", "xuyên đêm"],
+    "suốt": ["suốt ngày"],
+    "đêm": ["đêm khuya", "đêm nay"],
+    "khuya": ["khuya rồi"],
+    "nay": ["nay mai"],
+    "không": ["không khí", "không gian", "không ngờ"],
+    "khí": ["khí hậu"],
+    "hậu": ["hậu quả"],
+    "quả": ["quả ngọt"],
+    "gian": ["gian nan"],
+    "ngờ": ["ngờ vực"],
+    "vực": ["vực sâu"],
+    "sâu": ["sâu sắc"],
+    "sắc": ["sắc đẹp", "sắc màu"],
+    "đẹp": ["đẹp trai", "đẹp gái"],
+    "trai": ["trai trẻ"],
+    "gái": ["gái xinh"],
+    "xinh": ["xinh đẹp", "xinh xắn"],
+    "trẻ": ["trẻ con", "trẻ trung"],
+    "trung": ["trung thành"],
+    "thành": ["thành công"],
+    "công": ["công việc"],
+    "việc": ["việc làm"],
+    "làm": ["làm việc"],
+    "tây": ["tây ninh", "tây bắc"],
+    "bắc": ["bắc ninh"],
+    "tươi": ["tươi cười"],
+    "ngon": ["ngon miệng"],
+    "miệng": ["miệng cười"],
+    "sáng": ["sáng mai", "sáng sớm"],
+    "sớm": ["sớm mai"],
+    "vui": ["vui vẻ", "vui chơi"],
+    "vẻ": ["vẻ đẹp"],
+    "chơi": ["chơi game"],
+    "game": ["game hay"],
+    "hay": ["hay ho"],
+    "ho": ["ho hen"],
+    "hen": ["hen hò"],
+    "hò": ["hò hẹn"],
+    "hẹn": ["hẹn hò"],
+    "tốt": ["tốt bụng"],
+    "bụng": ["bụng đói"],
+    "đói": ["đói bụng"],
+    "lớn": ["lớn lên"],
+    "lên": ["lên cao"],
+    "cao": ["cao lớn"],
+    "nhỏ": ["nhỏ xinh"],
+    "nhanh": ["nhanh nhẹn"],
+    "nhẹn": ["nhẹn nhàng"],
+    "nhàng": ["nhàng nhàng"],
+    "thơm": ["thơm ngon"],
+    "mới": ["mới mẻ", "mới lạ"],
     "thinh": ["thinh lặng"],
 }
 
@@ -314,12 +372,20 @@ async def on_message(message):
     save_wordchain(new_last, used)
     # Bot nối tiếp bằng 1 cụm bắt đầu bằng chữ cuối của An / mọi người
     options = [p for p in WORD_BANK.get(new_last, []) if p not in used]
-    if not options:
-        await message.channel.send(
-            f"Hay quá {message.author.mention}! Tới **{new_last}** là Bom bí rồi, ai nối tiếp giúp Bom đi 😭"
-        )
-        return
-    reply = options[0]
+    if options:
+        reply = options[0]
+    else:
+        # Từ điển hết từ thì bot tự ghép 1 từ quen thuộc để game không đứt
+        for second in ["đẹp", "hay", "vui", "mới", "xinh", "tốt", "lớn", "nhỏ", "cao", "thơm", "ngon", "sáng", "tươi", "nhanh"]:
+            cand = f"{new_last} {second}"
+            if cand not in used:
+                reply = cand
+                break
+        else:
+            await message.channel.send(
+                f"Hay quá {message.author.mention}! Tới **{new_last}** là Bom bí rồi, ai nối tiếp giúp Bom đi 😭"
+            )
+            return
     used.add(reply)
     save_wordchain(reply.split()[-1], used)
     await message.channel.send(reply)
