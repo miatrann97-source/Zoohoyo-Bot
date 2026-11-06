@@ -23,6 +23,7 @@
 
 import json
 import os
+import random
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -564,6 +565,30 @@ WORD_BANK = {
 }
 
 
+# --- Từ điển thật: file tu_dien.txt (22.673 cụm 2 từ tiếng Việt, nguồn bi-grams) + WORD_BANK ---
+def load_dictionary():
+    phrases = set()
+    try:
+        with open("tu_dien.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip().lower()
+                if line:
+                    phrases.add(line)
+    except OSError:
+        pass
+    for vals in WORD_BANK.values():
+        phrases.update(v.lower() for v in vals)
+    idx = {}
+    for ph in phrases:
+        w = ph.split()
+        if len(w) == 2:
+            idx.setdefault(w[0], []).append(ph)
+    for k in idx:
+        idx[k].sort()
+    return idx
+
+DICTIONARY = load_dictionary()
+
 
 def _norm(s):
     return " ".join(s.strip().lower().split())
@@ -648,7 +673,6 @@ async def on_message(message):
     text = _norm(message.content)
     if not text or text.startswith("/") or text.startswith("!"):
         return
-    # Chỉ xử lý tin nhắn giống từ nối: 1-2 từ, không có link/emoji thừa
     words = text.split()
     if len(words) > 2 or any(len(w) > 10 for w in words):
         return
@@ -664,14 +688,20 @@ async def on_message(message):
             f"Từ **{text}** dùng rồi nè {message.author.mention}, nghĩ từ khác bắt đầu bằng **{last}** đi!"
         )
         return
-    # Từ hợp lệ: bot làm trọng tài, xác nhận và chuyển lượt, KHÔNG tự nối từ vô nghĩa
     used.add(text)
     new_last = words[-1]
     save_wordchain(new_last, used, text)
-    await message.add_reaction("✅")
-    await message.channel.send(
-        f"Đúng rồi {message.author.mention}! ✅ Tới lượt tiếp theo, từ bắt đầu bằng **{new_last}** nha."
-    )
+    # Bot CHƠI CHUNG: chỉ nối bằng cụm có thật trong từ điển, không tự bịa
+    options = [q for q in DICTIONARY.get(new_last, []) if q not in used]
+    if not options:
+        await message.channel.send(
+            f"Đúng rồi {message.author.mention}! ✅ Tới **{new_last}** là Bom bí thật rồi, ai nối tiếp giúp Bom đi 😅"
+        )
+        return
+    reply = random.choice(options)
+    used.add(reply)
+    save_wordchain(reply.split()[-1], used, reply)
+    await message.channel.send(reply)
 
 
 @tree.command(name="goiy", description="Gợi ý 1 từ nối tiếp hợp lệ (từ điển thật)")
@@ -680,7 +710,7 @@ async def goiy(interaction: discord.Interaction):
         await interaction.response.send_message("Lệnh này chỉ dùng ở kênh khu-vui-choi thôi nha.", ephemeral=True)
         return
     last, used, _phrase = load_wordchain()
-    options = [w for w in WORD_BANK.get(last, []) if w not in used]
+    options = [w for w in DICTIONARY.get(last, []) if w not in used]
     if not options:
         await interaction.response.send_message(
             f"Tới **{last}** là Bom cũng bí thật rồi, mọi người nghĩ giúp Bom đi 😅", ephemeral=False
