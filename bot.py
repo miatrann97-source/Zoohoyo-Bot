@@ -672,6 +672,17 @@ async def update_board_loop():
     await update_board_once()
 
 
+@tasks.loop(minutes=5)
+async def trend_loop():
+    for guild in client.guilds:
+        if guild.id not in trend_mode:
+            continue
+        vc = guild.voice_client
+        if vc is not None and vc.is_connected() and not vc.is_playing() and not vc.is_paused():
+            print(f"trend_loop: phát lại nhạc trend ở {guild.name}")
+            await _play_next(guild.id, vc)
+
+
 @client.event
 async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
@@ -679,6 +690,8 @@ async def on_ready():
     await update_board_once()
     if not update_board_loop.is_running():
         update_board_loop.start()
+    if not trend_loop.is_running():
+        trend_loop.start()
     # Ở lại voice 24/24: vô lại kênh voice đã lưu trước khi bot khởi động lại
     try:
         with open("voice.json", "r", encoding="utf-8") as f:
@@ -762,6 +775,8 @@ YTDL_OPTS = {
     "no_warnings": True,
     "default_search": "ytsearch1",
     "source_address": "0.0.0.0",
+    # Dùng client Android của YouTube để khỏi bị chặn "Sign in to confirm you're not a bot"
+    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
 }
 FFMPEG_OPTS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -773,13 +788,19 @@ TREND_QUERY = "nhạc trẻ hot trend 2026"
 TREND_CHANNEL_NAME = "Nhạc hot trend"
 
 def _trend_songs():
-    with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
-        info = ydl.extract_info(f"ytsearch10:{TREND_QUERY}", download=False)
-        out = []
-        for e in info.get("entries", []) or []:
-            if e and e.get("url"):
-                out.append((e.get("title", "Bài hát"), e["url"]))
-        return out
+    for query in (f"ytsearch10:{TREND_QUERY}", f"scsearch10:{TREND_QUERY}"):
+        try:
+            with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
+                info = ydl.extract_info(query, download=False)
+            out = []
+            for e in info.get("entries", []) or []:
+                if e and e.get("url"):
+                    out.append((e.get("title", "Bài hát"), e["url"]))
+            if out:
+                return out
+        except Exception as e:
+            print(f"trend search failed ({query}):", e)
+    return []
 
 def _ytdl_info(query):
     with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
