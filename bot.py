@@ -45,6 +45,11 @@ except Exception as e:
 
 from discord.ext import tasks
 
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+for _n in ("discord.voice_client", "discord.player", "discord.voice_state"):
+    logging.getLogger(_n).setLevel(logging.DEBUG)
+
 # --- Cấu hình ---
 UPDATE_INTERVAL_MINUTES = 10  # cứ 10 phút sửa bảng một lần
 STATE_FILE = "board.json"     # lưu id kênh + id tin nhắn bảng
@@ -1020,9 +1025,9 @@ async def _play_next_locked(guild_id, voice_client):
         local = await asyncio.to_thread(_download_song, song)
         try:
             if local:
-                source = discord.FFmpegPCMAudio(local, **FFMPEG_OPTS_FILE)
+                source = discord.FFmpegOpusAudio(local, **FFMPEG_OPTS_FILE)
             else:
-                source = discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTS_URL)
+                source = discord.FFmpegOpusAudio(song["url"], **FFMPEG_OPTS_URL)
         except Exception as e:
             print("music error: không tạo được audio:", repr(e))
             continue
