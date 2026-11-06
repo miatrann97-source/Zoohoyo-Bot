@@ -26,6 +26,8 @@ import json
 import os
 import random
 import re
+import time
+import unicodedata
 import urllib.parse
 import urllib.request
 
@@ -767,6 +769,39 @@ async def trend_loop():
             await _play_next(guild.id, vc)
 
 
+@tasks.loop(seconds=2)
+async def karaoke_loop():
+    """Karaoke tự chạy: sửa tin karaoke mỗi khi sang dòng lời mới."""
+    for guild_id, st in list(karaoke_state.items()):
+        guild = client.get_guild(guild_id)
+        vc = guild.voice_client if guild else None
+        if vc is None or not vc.is_connected():
+            await _karaoke_stop(guild_id)
+            continue
+        if st.get("paused_at") is not None or not vc.is_playing():
+            continue
+        synced = st.get("synced") or []
+        if not synced:
+            continue
+        elapsed = time.monotonic() - st["started_at"]
+        idx = 0
+        for i, (sec, _t) in enumerate(synced):
+            if sec <= elapsed:
+                idx = i
+            else:
+                break
+        if idx == st.get("line_idx"):
+            continue
+        st["line_idx"] = idx
+        msg = st.get("msg")
+        if msg is None:
+            continue
+        try:
+            await msg.edit(embed=_karaoke_embed(st["song"], synced, idx))
+        except discord.DiscordException:
+            pass
+
+
 @client.event
 async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
@@ -778,6 +813,8 @@ async def on_ready():
         trend_loop.start()
     if not voice_watchdog.is_running():
         voice_watchdog.start()
+    if not karaoke_loop.is_running():
+        karaoke_loop.start()
     # Ở lại voice 24/24: vô lại kênh voice đã lưu trước khi bot khởi động lại
     try:
         with open("voice.json", "r", encoding="utf-8") as f:
@@ -872,6 +909,7 @@ FFMPEG_OPTS_URL = {
 FFMPEG_OPTS_FILE = {}
 music_queues = {}  # guild_id -> list of (title, audio_url)
 now_playing = {}  # guild_id -> song đang phát (để nút 📜 lấy lời)
+karaoke_state = {}  # guild_id -> {"song", "synced", "started_at", "paused_at", "msg", "line_idx"}
 trend_mode = set()  # guild_id đang phát nhạc hot trend 24/7
 TREND_CHANNEL_NAME = "Nhạc hot trend"
 # Danh sách nhạc trend xoay vòng: show Việt + US-UK + Việt-Hàn hot TikTok 2020-2027
@@ -987,11 +1025,64 @@ def _clean_song_title(title):
     return t.strip(" -\u2013\u2014| \t")
 
 
+def _norm_words(s):
+    """Tách từ để so khớp nghệ sĩ: bỏ dấu, bỏ dấu câu, chữ thường."""
+    s = (s or "").lower()
+    s = s.replace("'", "").replace("’", "").replace('"', "").replace("“", "").replace("”", "")
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.replace("đ", "d")
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return s.split()
+
+
+_LYRIC_STOPWORDS = {"say", "hi", "anh", "trai", "tinh", "ha", "official", "music", "channel", "records", "entertainment", "show", "the", "and", "feat", "ft"}
+
+
+def _artist_tokens(title, artist):
+    """Lấy các từ tên nghệ sĩ từ title ('Bài - Nghệ sĩ 1, Nghệ sĩ 2') + uploader."""
+    toks = set()
+    parts = (title or "").split("|")[0].split(" - ")
+    if len(parts) > 1:
+        raw = " ".join(parts[1:])
+        for chunk in re.split(r"[,/&+]|\bfeat\.?\b|\bft\.?\b|\bx\b", raw, flags=re.I):
+            for w in _norm_words(chunk):
+                if len(w) > 2 and w not in _LYRIC_STOPWORDS:
+                    toks.add(w)
+    for w in _norm_words(artist):
+        if len(w) > 2 and w not in _LYRIC_STOPWORDS:
+            toks.add(w)
+    return toks
+
+
+def _parse_synced(synced_text):
+    """Parse lời đồng bộ '[mm:ss.xx] dòng' -> [(giây, dòng)].
+    Gộp các dòng cách nhau < 2s (kiểu word-sync) thành 1 dòng, tối đa ~80 ký tự."""
+    lines = []
+    for ln in (synced_text or "").splitlines():
+        m = re.match(r"^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$", ln)
+        if not m:
+            continue
+        text = m.group(3).strip()
+        if text:
+            lines.append((int(m.group(1)) * 60 + float(m.group(2)), text))
+    if not lines:
+        return []
+    merged = [[lines[0][0], lines[0][1]]]
+    for sec, text in lines[1:]:
+        if sec - merged[-1][0] < 2.0 and len(merged[-1][1]) + len(text) + 1 <= 80:
+            merged[-1][1] += " " + text
+        else:
+            merged.append([sec, text])
+    return [(s, t) for s, t in merged]
+
+
 def _lyrics_from_lrclib(title, artist, duration):
-    """Tìm lời bài hát trên LRCLIB (miễn phí, không cần key). Trả về lời hoặc None."""
+    """Tìm lời bài hát trên LRCLIB (miễn phí, không cần key).
+    Trả về (lời thường, [(giây, dòng)] lời đồng bộ) hoặc (None, [])."""
     name = _clean_song_title(title)
     if not name:
-        return None
+        return None, []
     try:
         url = "https://lrclib.net/api/search?" + urllib.parse.urlencode({"track_name": name})
         req = urllib.request.Request(url, headers={"User-Agent": "ZoohoyoBot/1.0"})
@@ -999,50 +1090,136 @@ def _lyrics_from_lrclib(title, artist, duration):
             results = json.loads(resp.read().decode("utf-8", "replace"))
     except Exception as e:
         print("lyrics search failed:", e)
-        return None
+        return None, []
     if not isinstance(results, list) or not results:
-        return None
+        return None, []
     artist_low = (artist or "").lower()
+    want_toks = _artist_tokens(title, artist)
     best = None
+    best_synced_raw = ""
     best_score = -1
     for r in results:
         lyrics = (r.get("plainLyrics") or "").strip()
-        if not lyrics:
-            synced = (r.get("syncedLyrics") or "").strip()
-            if synced:
-                lyrics = "\n".join(re.sub(r"^\[\d+:\d+(?:\.\d+)?\]\s*", "", ln) for ln in synced.splitlines()).strip()
+        synced_raw = (r.get("syncedLyrics") or "").strip()
+        if not lyrics and synced_raw:
+            lyrics = "\n".join(re.sub(r"^\[\d+:\d+(?:\.\d+)?\]\s*", "", ln) for ln in synced_raw.splitlines()).strip()
         if not lyrics or r.get("instrumental"):
             continue
         score = 0
         dur = r.get("duration") or 0
         if duration and dur:
             if abs(dur - duration) <= 10:
-                score += 3
+                score += 2
             elif abs(dur - duration) <= 30:
                 score += 1
         an = (r.get("artistName") or "").lower()
         if artist_low and an and (artist_low in an or an in artist_low):
             score += 2
+        if want_toks:
+            overlap = len(want_toks & set(_norm_words(r.get("artistName") or "")))
+            score += min(6, 2 * overlap)
         if score > best_score:
             best_score = score
             best = lyrics
-    return best.strip() if best else None
+            best_synced_raw = synced_raw
+    if best is None:
+        return None, []
+    return best.strip(), _parse_synced(best_synced_raw)
 
 
 async def _fetch_lyrics(song):
-    """Lấy lời bài hát (nếu có) rồi lưu vào song['lyrics']. Lỗi thì thôi, không chặn nhạc."""
+    """Lấy lời bài hát (nếu có) rồi lưu vào song['lyrics'] và song['synced']. Lỗi thì thôi, không chặn nhạc."""
     if "lyrics" in song:
         return song.get("lyrics")
     try:
-        lyrics = await asyncio.wait_for(
+        plain, synced = await asyncio.wait_for(
             asyncio.to_thread(_lyrics_from_lrclib, song.get("title", ""), song.get("artist", ""), song.get("duration") or 0),
             timeout=8,
         )
     except Exception as e:
         print("lyrics fetch failed:", e)
-        lyrics = None
-    song["lyrics"] = lyrics
-    return lyrics
+        plain, synced = None, []
+    song["lyrics"] = plain
+    song["synced"] = synced
+    return plain
+
+
+def _karaoke_embed(song, synced, idx):
+    """Thẻ karaoke: dòng trước + dòng đang hát (in đậm) + 2 dòng sau."""
+    embed = discord.Embed(title=f"🎤 {song['title']}", color=0xFA57C1)
+    parts = []
+    for j in range(max(0, idx - 1), min(len(synced), idx + 3)):
+        line = synced[j][1]
+        parts.append(f"**🎵 {line}**" if j == idx else line)
+    embed.description = "\n".join(parts) if parts else "…"
+    embed.set_footer(text=f"🎤 {song.get('artist', '')}  •  Karaoke tự chạy")
+    return embed
+
+
+async def _karaoke_start(guild_id, song, started_at):
+    """Bắt đầu karaoke cho bài mới (hoặc xoá tin karaoke nếu bài không có lời đồng bộ)."""
+    synced = song.get("synced") or []
+    st = karaoke_state.get(guild_id)
+    if not synced:
+        if st and st.get("msg") is not None:
+            try:
+                await st["msg"].delete()
+            except discord.DiscordException:
+                pass
+        karaoke_state.pop(guild_id, None)
+        return
+    guild = client.get_guild(guild_id)
+    ch = None
+    if guild is not None:
+        ch_id = music_text_channels.get(guild_id)
+        ch = guild.get_channel(ch_id) if ch_id else find_music_text_channel(guild)
+        if ch is not None:
+            music_text_channels[guild_id] = ch.id
+    if ch is None:
+        karaoke_state.pop(guild_id, None)
+        return
+    new_state = {
+        "song": song,
+        "synced": synced,
+        "started_at": started_at,
+        "paused_at": None,
+        "line_idx": 0,
+        "msg": st.get("msg") if st else None,
+    }
+    karaoke_state[guild_id] = new_state
+    try:
+        if new_state["msg"] is not None:
+            await new_state["msg"].edit(embed=_karaoke_embed(song, synced, 0))
+        else:
+            new_state["msg"] = await ch.send(embed=_karaoke_embed(song, synced, 0))
+    except discord.DiscordException as e:
+        print("karaoke send failed:", e)
+        karaoke_state.pop(guild_id, None)
+
+
+async def _karaoke_stop(guild_id):
+    """Dừng karaoke: xoá tin karaoke và trạng thái."""
+    st = karaoke_state.pop(guild_id, None)
+    if st and st.get("msg") is not None:
+        try:
+            await st["msg"].delete()
+        except discord.DiscordException:
+            pass
+
+
+def _karaoke_pause(guild_id, paused):
+    """Tạm dừng / phát tiếp karaoke cho khớp với nhạc (giữ nguyên dòng đang hát khi pause)."""
+    st = karaoke_state.get(guild_id)
+    if not st:
+        return
+    now = time.monotonic()
+    if paused:
+        if st.get("paused_at") is None:
+            st["paused_at"] = now
+    else:
+        if st.get("paused_at") is not None:
+            st["started_at"] += now - st["paused_at"]
+            st["paused_at"] = None
 
 
 def _now_playing_embed(song):
@@ -1077,9 +1254,11 @@ class MusicControls(discord.ui.View):
         if vc:
             if vc.is_playing():
                 vc.pause()
+                _karaoke_pause(self.guild_id, True)
                 button.emoji = "▶️"
             elif vc.is_paused():
                 vc.resume()
+                _karaoke_pause(self.guild_id, False)
                 button.emoji = "⏸️"
             await interaction.response.edit_message(view=self)
         else:
@@ -1121,6 +1300,7 @@ class MusicControls(discord.ui.View):
         if vc:
             music_queues[interaction.guild_id] = []
             trend_mode.discard(interaction.guild_id)
+            await _karaoke_stop(interaction.guild_id)
             await vc.disconnect()
         await interaction.response.defer()
 
@@ -1205,6 +1385,7 @@ async def _play_next_locked(guild_id, voice_client):
         except Exception as e:
             print("music error: không phát được:", repr(e))
             continue
+        play_started = time.monotonic()
         g = client.get_guild(guild_id)
         vs = g.me.voice if g and g.me else None
         _sock = getattr(voice_client._connection, "socket", None)
@@ -1212,6 +1393,7 @@ async def _play_next_locked(guild_id, voice_client):
         print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} mode={voice_client.mode} dave_proto={voice_client._connection.dave_protocol_version} dave_ready={_ds.ready if _ds else None} can_encrypt={voice_client._connection.can_encrypt} sock_fileno={_sock.fileno() if _sock is not None and _sock is not discord.utils.MISSING else None} endpoint={voice_client.endpoint} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
         await _fetch_lyrics(song)
         now_playing[guild_id] = song
+        await _karaoke_start(guild_id, song, play_started)
         break
     if guild_id in trend_mode:
         guild = client.get_guild(guild_id)
@@ -1256,18 +1438,22 @@ async def nhac(interaction: discord.Interaction, bai: str):
     with open("voice.json", "w", encoding="utf-8") as f:
         json.dump({"guild_id": interaction.guild_id, "channel_id": channel.id}, f)
     music_text_channels[interaction.guild_id] = interaction.channel_id
-    music_queues.setdefault(interaction.guild_id, []).append(song)
+    # /nhac là "phát ngay": chèn bài lên đầu hàng chờ rồi dừng bài đang phát,
+    # callback after sẽ phát bài mới liền (không đợi hết bài cũ).
+    music_queues.setdefault(interaction.guild_id, []).insert(0, song)
     if not vc.is_playing() and not vc.is_paused():
         await _play_next(interaction.guild_id, vc)
         await interaction.followup.send(embed=_now_playing_embed(song), view=MusicControls(interaction.guild_id))
     else:
-        await interaction.followup.send(embed=_now_playing_embed(song).add_field(name="Đã thêm vào hàng chờ 🎵", value="Phát sau bài đang phát nha", inline=False), view=MusicControls(interaction.guild_id))
+        vc.stop()
+        await interaction.followup.send(embed=_now_playing_embed(song).add_field(name="Đang chuyển bài 🎵", value="Phát bài này ngay nha", inline=False), view=MusicControls(interaction.guild_id))
 
 @tree.command(name="dung", description="Tạm dừng nhạc")
 async def dung(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
     if vc and vc.is_playing():
         vc.pause()
+        _karaoke_pause(interaction.guild_id, True)
         await interaction.response.send_message("Tạm dừng nhạc rồi ⏸️")
     else:
         await interaction.response.send_message("Đâu có nhạc đang phát đâu 😅", ephemeral=True)
@@ -1277,6 +1463,7 @@ async def tiep(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
     if vc and vc.is_paused():
         vc.resume()
+        _karaoke_pause(interaction.guild_id, False)
         await interaction.response.send_message("Phát tiếp nè ▶️")
     else:
         await interaction.response.send_message("Không có nhạc đang tạm dừng 😅", ephemeral=True)
@@ -1362,6 +1549,7 @@ async def roi(interaction: discord.Interaction):
     if vc:
         music_queues[interaction.guild_id] = []
         trend_mode.discard(interaction.guild_id)
+        await _karaoke_stop(interaction.guild_id)
         try:
             os.remove("voice.json")
         except OSError:
