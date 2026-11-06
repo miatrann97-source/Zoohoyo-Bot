@@ -678,6 +678,22 @@ async def on_ready():
             print(f"Đã vô lại voice: {channel.name}")
     except (OSError, ValueError, KeyError, AttributeError, discord.DiscordException) as e:
         print("Không vô lại voice được:", e)
+    # Vô kênh "Nhạc hot trend" và phát nhạc trend 24/7
+    for guild in client.guilds:
+        if guild.voice_client is not None:
+            continue
+        for ch in guild.voice_channels:
+            if ch.name.strip().lower() == TREND_CHANNEL_NAME.lower():
+                try:
+                    vc = await ch.connect()
+                    trend_mode.add(guild.id)
+                    with open("voice.json", "w", encoding="utf-8") as f:
+                        json.dump({"guild_id": guild.id, "channel_id": ch.id}, f)
+                    print(f"Đã vô kênh trend: {ch.name}")
+                    await _play_next(guild.id, vc)
+                except discord.DiscordException as e:
+                    print("Không vô kênh trend được:", e)
+                break
 
 
 @client.event
@@ -733,6 +749,18 @@ FFMPEG_OPTS = {
     "options": "-vn",
 }
 music_queues = {}  # guild_id -> list of (title, audio_url)
+trend_mode = set()  # guild_id đang phát nhạc hot trend 24/7
+TREND_QUERY = "nhạc trẻ hot trend 2026"
+TREND_CHANNEL_NAME = "Nhạc hot trend"
+
+def _trend_songs():
+    with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
+        info = ydl.extract_info(f"ytsearch10:{TREND_QUERY}", download=False)
+        out = []
+        for e in info.get("entries", []) or []:
+            if e and e.get("url"):
+                out.append((e.get("title", "Bài hát"), e["url"]))
+        return out
 
 def _ytdl_info(query):
     with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
@@ -743,6 +771,14 @@ def _ytdl_info(query):
 
 async def _play_next(guild_id, voice_client):
     queue = music_queues.get(guild_id, [])
+    if not queue and guild_id in trend_mode:
+        try:
+            songs = await asyncio.to_thread(_trend_songs)
+        except Exception as e:
+            print("trend search error:", e)
+            songs = []
+        music_queues[guild_id] = list(songs)
+        queue = music_queues[guild_id]
     if not queue:
         return
     title, url = queue.pop(0)
@@ -815,11 +851,36 @@ async def boi(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("Đâu có nhạc đang phát đâu 😅", ephemeral=True)
 
+@tree.command(name="trend", description="Phát nhạc hot trend liên tục trong voice channel")
+async def trend(interaction: discord.Interaction):
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.response.send_message("An vào voice channel trước rồi gõ lại nha 🎧", ephemeral=True)
+        return
+    await interaction.response.defer()
+    channel = interaction.user.voice.channel
+    vc = interaction.guild.voice_client
+    try:
+        if vc is None:
+            vc = await channel.connect()
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+    except discord.Forbidden:
+        await interaction.followup.send("Bot chưa có quyền vào voice channel này. An cho bot quyền **Kết nối** và **Nói** trong kênh voice nha.")
+        return
+    trend_mode.add(interaction.guild_id)
+    with open("voice.json", "w", encoding="utf-8") as f:
+        json.dump({"guild_id": interaction.guild_id, "channel_id": channel.id}, f)
+    if not vc.is_playing() and not vc.is_paused():
+        await _play_next(interaction.guild_id, vc)
+    await interaction.followup.send("Phát nhạc hot trend liên tục nè 🎵🔥")
+
+
 @tree.command(name="roi", description="Bot rời khỏi voice channel")
 async def roi(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
     if vc:
         music_queues[interaction.guild_id] = []
+        trend_mode.discard(interaction.guild_id)
         try:
             os.remove("voice.json")
         except OSError:
