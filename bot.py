@@ -50,6 +50,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 for _n in ("discord.voice_client", "discord.player", "discord.voice_state", "discord.gateway"):
     logging.getLogger(_n).setLevel(logging.DEBUG)
 
+# FIX thử nghiệm 14:14 PST 2026-11-06: Discord đàm phán DAVE protocol v1 nhưng
+# session DAVE của bot không bao giờ ready (dave_proto=1, dave_ready=False,
+# can_encrypt=False) nên server bỏ tiếng. Ép bot dùng mode mã hoá cũ
+# (xsalsa20, không cần DAVE) để server không đòi payload mã hoá DAVE nữa.
+# Nếu server đã bỏ hẳn mode cũ thì bot sẽ không vào được voice (thấy ngay
+# trong log) và Bom sẽ hoàn tác.
+discord.VoiceClient.supported_modes = (
+    'xsalsa20_poly1305_lite',
+    'xsalsa20_poly1305_suffix',
+    'xsalsa20_poly1305',
+)
+
 # --- Cấu hình ---
 UPDATE_INTERVAL_MINUTES = 10  # cứ 10 phút sửa bảng một lần
 STATE_FILE = "board.json"     # lưu id kênh + id tin nhắn bảng
