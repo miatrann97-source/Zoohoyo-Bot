@@ -784,22 +784,49 @@ FFMPEG_OPTS = {
 }
 music_queues = {}  # guild_id -> list of (title, audio_url)
 trend_mode = set()  # guild_id đang phát nhạc hot trend 24/7
-TREND_QUERY = "nhạc trẻ hot trend 2026"
 TREND_CHANNEL_NAME = "Nhạc hot trend"
+# Danh sách nhạc trend xoay vòng: show Việt + US-UK + Việt-Hàn hot TikTok 2020-2027
+TREND_QUERIES = [
+    "Anh Trai Say Hi 2",
+    "Anh Trai Vượt Ngàn Chông Gai 2",
+    "Chị Đẹp Đạp Gió Rẽ Sóng 2",
+    "Em Xinh Say Hi 2",
+    "nhạc US UK hot trend 2025 2026",
+    "Billboard Hot 100 2026",
+    "nhạc trẻ Việt hot TikTok 2026",
+    "nhạc Hàn hot TikTok 2026",
+    "nhạc hot trend 2024 2025",
+    "nhạc trẻ hot trend 2020 2021 2022 2023",
+    "nhạc Âu Mỹ hay nhất 2026",
+    "nhạc Việt hot trend 2027",
+]
+trend_query_index = 0
+music_text_channels = {}  # guild_id -> text channel id để đăng "đang phát" kiểu Apple Music
 
 def _trend_songs():
-    for query in (f"ytsearch10:{TREND_QUERY}", f"scsearch10:{TREND_QUERY}"):
+    global trend_query_index
+    query = TREND_QUERIES[trend_query_index % len(TREND_QUERIES)]
+    trend_query_index += 1
+    print(f"trend search: {query}")
+    for q in (f"ytsearch10:{query}", f"scsearch10:{query}"):
         try:
             with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
-                info = ydl.extract_info(query, download=False)
+                info = ydl.extract_info(q, download=False)
             out = []
             for e in info.get("entries", []) or []:
                 if e and e.get("url"):
-                    out.append((e.get("title", "Bài hát"), e["url"]))
+                    out.append({
+                        "title": e.get("title", "Bài hát"),
+                        "url": e["url"],
+                        "artist": e.get("uploader", e.get("channel", "Không rõ nghệ sĩ")),
+                        "thumbnail": e.get("thumbnail"),
+                        "duration": e.get("duration") or 0,
+                        "webpage_url": e.get("webpage_url", ""),
+                    })
             if out:
                 return out
         except Exception as e:
-            print(f"trend search failed ({query}):", e)
+            print(f"trend search failed ({q}):", e)
     return []
 
 def _ytdl_info(query):
@@ -807,7 +834,78 @@ def _ytdl_info(query):
         info = ydl.extract_info(query, download=False)
         if "entries" in info:
             info = info["entries"][0]
-        return info.get("title", "Bài hát"), info.get("url")
+        return {
+            "title": info.get("title", "Bài hát"),
+            "url": info.get("url"),
+            "artist": info.get("uploader", info.get("channel", "Không rõ nghệ sĩ")),
+            "thumbnail": info.get("thumbnail"),
+            "duration": info.get("duration") or 0,
+            "webpage_url": info.get("webpage_url", ""),
+        }
+
+def _fmt_duration(sec):
+    sec = int(sec or 0)
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+def _now_playing_embed(song):
+    embed = discord.Embed(
+        title=f"🎵 {song['title']}",
+        description=f"🎤 {song.get('artist', 'Không rõ nghệ sĩ')}",
+        color=0xFA57C1,  # hồng Apple Music
+    )
+    if song.get("thumbnail"):
+        embed.set_thumbnail(url=song["thumbnail"])
+    bar = "━━━━━━●━━━━━━━━━━"
+    embed.add_field(name="Đang phát", value=f"{bar}\n0:00  •  {_fmt_duration(song.get('duration'))}", inline=False)
+    if song.get("webpage_url"):
+        embed.add_field(name="Nghe trên YouTube", value=song["webpage_url"], inline=False)
+    embed.set_footer(text="Bot tuất Music  •  giống Apple Music")
+    return embed
+
+
+class MusicControls(discord.ui.View):
+    def __init__(self, guild_id):
+        super().__init__(timeout=600)
+        self.guild_id = guild_id
+
+    @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.secondary)
+    async def pause_resume(self, interaction: discord.Interaction, button: discord.ui.Button):
+        vc = interaction.guild.voice_client
+        if vc:
+            if vc.is_playing():
+                vc.pause()
+                button.emoji = "▶️"
+            elif vc.is_paused():
+                vc.resume()
+                button.emoji = "⏸️"
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.defer()
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary)
+    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        vc = interaction.guild.voice_client
+        if vc and (vc.is_playing() or vc.is_paused()):
+            vc.stop()
+        await interaction.response.defer()
+
+    @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger)
+    async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        vc = interaction.guild.voice_client
+        if vc:
+            music_queues[interaction.guild_id] = []
+            trend_mode.discard(interaction.guild_id)
+            await vc.disconnect()
+        await interaction.response.defer()
+
+
+def find_music_text_channel(guild):
+    for ch in guild.text_channels:
+        if "order-nhạc" in ch.name or "order-nhac" in ch.name:
+            return ch
+    return None
+
 
 async def _play_next(guild_id, voice_client):
     queue = music_queues.get(guild_id, [])
@@ -821,14 +919,27 @@ async def _play_next(guild_id, voice_client):
         queue = music_queues[guild_id]
     if not queue:
         return
-    title, url = queue.pop(0)
-    source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTS)
+    song = queue.pop(0)
+    source = discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTS)
     def after(err):
         if err:
             print("music error:", err)
         coro = _play_next(guild_id, voice_client)
         asyncio.run_coroutine_threadsafe(coro, client.loop)
     voice_client.play(source, after=after)
+    if guild_id in trend_mode:
+        guild = client.get_guild(guild_id)
+        ch = None
+        if guild is not None:
+            ch_id = music_text_channels.get(guild_id)
+            ch = guild.get_channel(ch_id) if ch_id else find_music_text_channel(guild)
+            if ch is not None:
+                music_text_channels[guild_id] = ch.id
+        if ch is not None:
+            try:
+                await ch.send(embed=_now_playing_embed(song), view=MusicControls(guild_id))
+            except discord.DiscordException as e:
+                print("now-playing embed failed:", e)
 
 @tree.command(name="nhac", description="Phát nhạc YouTube: /nhac tên bài hát hoặc link")
 @app_commands.describe(bai="Tên bài hát hoặc link YouTube")
@@ -838,11 +949,11 @@ async def nhac(interaction: discord.Interaction, bai: str):
         return
     await interaction.response.defer()
     try:
-        title, url = await asyncio.to_thread(_ytdl_info, bai)
+        song = await asyncio.to_thread(_ytdl_info, bai)
     except Exception as e:
         await interaction.followup.send(f"Không tìm được bài này, YouTube chặn rồi thử bài khác nha 😢 ({e})")
         return
-    if not url:
+    if not song.get("url"):
         await interaction.followup.send("Không lấy được nhạc của bài này, thử bài khác nha 😢")
         return
     channel = interaction.user.voice.channel
@@ -857,12 +968,13 @@ async def nhac(interaction: discord.Interaction, bai: str):
         return
     with open("voice.json", "w", encoding="utf-8") as f:
         json.dump({"guild_id": interaction.guild_id, "channel_id": channel.id}, f)
-    music_queues.setdefault(interaction.guild_id, []).append((title, url))
+    music_text_channels[interaction.guild_id] = interaction.channel_id
+    music_queues.setdefault(interaction.guild_id, []).append(song)
     if not vc.is_playing() and not vc.is_paused():
         await _play_next(interaction.guild_id, vc)
-        await interaction.followup.send(f"Đang phát nè 🎵 **{title}**")
+        await interaction.followup.send(embed=_now_playing_embed(song), view=MusicControls(interaction.guild_id))
     else:
-        await interaction.followup.send(f"Đã thêm vào hàng chờ 🎵 **{title}**")
+        await interaction.followup.send(embed=_now_playing_embed(song).add_field(name="Đã thêm vào hàng chờ 🎵", value="Phát sau bài đang phát nha", inline=False), view=MusicControls(interaction.guild_id))
 
 @tree.command(name="dung", description="Tạm dừng nhạc")
 async def dung(interaction: discord.Interaction):
@@ -908,6 +1020,7 @@ async def trend(interaction: discord.Interaction):
         await interaction.followup.send("Bot chưa có quyền vào voice channel này. An cho bot quyền **Kết nối** và **Nói** trong kênh voice nha.")
         return
     trend_mode.add(interaction.guild_id)
+    music_text_channels[interaction.guild_id] = interaction.channel_id
     with open("voice.json", "w", encoding="utf-8") as f:
         json.dump({"guild_id": interaction.guild_id, "channel_id": channel.id}, f)
     if not vc.is_playing() and not vc.is_paused():
