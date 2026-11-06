@@ -1037,6 +1037,9 @@ async def _play_next_locked(guild_id, voice_client):
         except Exception as e:
             print("music error: không phát được:", repr(e))
             continue
+        g = client.get_guild(guild_id)
+        vs = g.me.voice if g and g.me else None
+        print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
         break
     if guild_id in trend_mode:
         guild = client.get_guild(guild_id)
@@ -1113,6 +1116,27 @@ async def boi(interaction: discord.Interaction):
         await interaction.response.send_message("Bỏ qua bài này, sang bài tiếp ⏭️")
     else:
         await interaction.response.send_message("Đâu có nhạc đang phát đâu 😅", ephemeral=True)
+
+@tree.command(name="kiemtra", description="Kiểm tra bot có đang phát nhạc và có quyền nói trong voice không")
+async def kiemtra(interaction: discord.Interaction):
+    guild = interaction.guild
+    vc = guild.voice_client if guild else None
+    me = guild.me if guild else None
+    vs = me.voice if me else None
+    lines = []
+    if vc is None or vs is None or vs.channel is None:
+        lines.append("Bot hiện không ở trong voice channel nào.")
+    else:
+        ch = vs.channel
+        perms = ch.permissions_for(me)
+        lines.append(f"Bot đang ở kênh: **{ch.name}**")
+        lines.append(f"Đang phát nhạc: {'có' if vc.is_playing() else 'không'} | đang tạm dừng: {'có' if vc.is_paused() else 'không'}")
+        lines.append(f"Quyền: kết nối={'có' if perms.connect else 'không'}, nói={'có' if perms.speak else 'không'}, dùng voice activity={'có' if perms.use_voice_activation else 'không'}")
+        lines.append(f"Trạng thái voice: bị tắt tiếng={'có' if vs.mute else 'không'}, bị điếc={'có' if vs.deaf else 'không'}, tự tắt tiếng={'có' if vs.self_mute else 'không'}, bị chặn nói={'có' if vs.suppress else 'không'}")
+        if not perms.speak or vs.suppress or vs.mute:
+            lines.append("⚠️ Bot bị chặn nói nên An không nghe được nhạc. An cho bot quyền **Nói** trong kênh voice này nha (cài đặt kênh → Quyền → Bot tuất → bật Nói).")
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
 
 @tree.command(name="vao", description="Gọi bot vào voice channel của An")
 async def vao(interaction: discord.Interaction):
