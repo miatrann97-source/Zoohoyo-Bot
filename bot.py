@@ -119,10 +119,137 @@ def save_state(channel_id, message_id):
         json.dump({"channel_id": channel_id, "message_id": message_id}, f)
 
 
+# --- Game nối từ (kênh khu-vui-choi) ---
+# Luật: từ sau phải bắt đầu bằng chữ cuối của từ trước.
+# Ví dụ: trang sang -> sang mai -> mai mốt -> mốt ...
+WORDCHAIN_CHANNEL_ID = 1535494079821910026  # khu-vui-choi-♠️♦️♥️♣️
+WORDCHAIN_FILE = "wordchain.json"
+
+# Từ điển nhỏ để bot nối tiếp: chữ bắt đầu -> cụm 2 từ bot sẽ dùng
+WORD_BANK = {
+    "mốt": ["mốt mới", "mốt thời thượng"],
+    "một": ["một mình", "một ngày", "một lần"],
+    "mai": ["mai mốt", "mai sau", "mai này"],
+    "sang": ["sang mai", "sang trọng", "sang chảnh"],
+    "trang": ["trang sang", "trang điểm", "trang sức"],
+    "mới": ["mới mẻ", "mới lạ"],
+    "mình": ["mình ơi", "mình mẩy"],
+    "ngày": ["ngày mai", "ngày mới", "ngày nắng"],
+    "lần": ["lần sau", "lần đầu"],
+    "sau": ["sau này", "sau đó"],
+    "này": ["này nhé", "này nè"],
+    "trọng": ["trọng lượng", "trọng tài"],
+    "chảnh": ["chảnh chọe"],
+    "điểm": ["điểm danh", "điểm cao"],
+    "sức": ["sức khỏe", "sức mạnh"],
+    "mẻ": ["mẻ lưới"],
+    "lạ": ["lạ lẫm", "lạ thường"],
+    "ơi": ["ơi là ơi"],
+    "mẩy": ["mẩy mập"],
+    "nắng": ["nắng mai", "nắng vàng"],
+    "vàng": ["vàng óng", "vàng tươi"],
+    "đầu": ["đầu tiên", "đầu năm"],
+    "đó": ["đó nha", "đó rồi"],
+    "nữa": ["nữa nhé"],
+    "cá": ["cá heo", "cá chép", "cá bơi"],
+    "heo": ["heo hồng", "heo con"],
+    "chép": ["chép bài"],
+    "bơi": ["bơi lội"],
+    "hồng": ["hồng hào", "hồng phấn"],
+    "con": ["con mèo", "con cá", "con chó"],
+    "mèo": ["mèo mun", "mèo con"],
+    "chó": ["chó cưng"],
+    "mun": ["mun đen"],
+    "đen": ["đen thui"],
+    "thui": ["thui thủi"],
+    "cưng": ["cưng xỉu"],
+    "xỉu": ["xỉu ngang"],
+    "ngang": ["ngang nhiên"],
+    "nhiên": ["nhiên liệu"],
+    "liệu": ["liệu hồn"],
+    "hồn": ["hồn nhiên"],
+    "lội": ["lội nước"],
+    "nước": ["nước mắt", "nước biển"],
+    "mắt": ["mắt cười"],
+    "biển": ["biển xanh"],
+    "xanh": ["xanh lá", "xanh dương"],
+    "lá": ["lá cây"],
+    "cây": ["cây xanh"],
+    "dương": ["dương gian"],
+    "gian": ["gian nan"],
+    "nan": ["nan giải"],
+    "giải": ["giải trí"],
+    "trí": ["trí tuệ"],
+    "tuệ": ["tuệ minh"],
+    "minh": ["minh mẫn"],
+    "mẫn": ["mẫn cảm"],
+    "cảm": ["cảm ơn", "cảm xúc"],
+    "ơn": ["ơn huệ"],
+    "xúc": ["xúc động"],
+    "động": ["động viên"],
+    "viên": ["viên mãn"],
+    "mãn": ["mãn nguyện"],
+    "nguyện": ["nguyện ước"],
+    "ước": ["ước mơ"],
+    "mơ": ["mơ mộng"],
+    "mộng": ["mộng mơ"],
+    "cười": ["cười tươi"],
+    "tươi": ["tươi cười", "tươi tắn"],
+    "tắn": ["tắn tắn"],
+    "bài": ["bài học"],
+    "học": ["học bài", "học giỏi"],
+    "giỏi": ["giỏi giang"],
+    "giang": ["giang hồ"],
+    "hồ": ["hồ bơi"],
+    "phấn": ["phấn khởi"],
+    "khởi": ["khởi đầu"],
+    "hào": ["hào hứng"],
+    "hứng": ["hứng thú"],
+    "thú": ["thú vị"],
+    "vị": ["vị ngọt"],
+    "ngọt": ["ngọt ngào"],
+    "ngào": ["ngào ngạt"],
+    "ngạt": ["ngạt thở"],
+    "thở": ["thở dài"],
+    "dài": ["dài lâu"],
+    "lâu": ["lâu rồi"],
+    "rồi": ["rồi nhé"],
+    "nhé": ["nhé An"],
+    "thủ": ["thủ thỉ"],
+    "thỉ": ["thỉ thầm"],
+    "thầm": ["thầm lặng"],
+    "lặng": ["lặng thinh"],
+    "thinh": ["thinh lặng"],
+}
+
+
+def _norm(s):
+    return " ".join(s.strip().lower().split())
+
+
+def load_wordchain():
+    try:
+        with open(WORDCHAIN_FILE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d.get("last", "mốt"), set(d.get("used", []))
+    except (OSError, ValueError):
+        # Trạng thái hôm 2026-11-05: trang sang -> sang mai -> mai mốt
+        return "mốt", {"trang sang", "sang mai", "mai mốt"}
+
+
+def save_wordchain(last, used):
+    try:
+        with open(WORDCHAIN_FILE, "w", encoding="utf-8") as f:
+            json.dump({"last": last, "used": sorted(used)}, f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
 # --- Bot ---
 
 intents = discord.Intents.default()
 intents.members = True  # để đếm thành viên chính xác
+intents.message_content = True  # để đọc từ nối trong kênh khu-vui-choi
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
@@ -160,6 +287,42 @@ async def on_ready():
     await update_board_once()
     if not update_board_loop.is_running():
         update_board_loop.start()
+
+
+@client.event
+async def on_message(message):
+    if message.author.bot or message.channel.id != WORDCHAIN_CHANNEL_ID:
+        return
+    text = _norm(message.content)
+    if not text or text.startswith("/") or len(text.split()) > 4:
+        return
+    words = text.split()
+    last, used = load_wordchain()
+    if words[0] != last:
+        await message.channel.send(
+            f"Ui, từ phải bắt đầu bằng **{last}** nha {message.author.mention} 🥺 "
+            f"Từ trước là **{' '.join(used and [sorted(used)[-1]] or [])}** đó, thử lại đi!"
+        )
+        return
+    if text in used:
+        await message.channel.send(
+            f"Từ **{text}** dùng rồi nè {message.author.mention}, nghĩ từ khác bắt đầu bằng **{last}** đi!"
+        )
+        return
+    used.add(text)
+    new_last = words[-1]
+    save_wordchain(new_last, used)
+    # Bot nối tiếp bằng 1 cụm bắt đầu bằng chữ cuối của An / mọi người
+    options = [p for p in WORD_BANK.get(new_last, []) if p not in used]
+    if not options:
+        await message.channel.send(
+            f"Hay quá {message.author.mention}! Tới **{new_last}** là Bom bí rồi, ai nối tiếp giúp Bom đi 😭"
+        )
+        return
+    reply = options[0]
+    used.add(reply)
+    save_wordchain(reply.split()[-1], used)
+    await message.channel.send(reply)
 
 
 @tree.command(name="poststatus", description="Đặt bảng trạng thái Genshin ở kênh này")
