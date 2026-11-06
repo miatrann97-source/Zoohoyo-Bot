@@ -803,6 +803,33 @@ TREND_QUERIES = [
 trend_query_index = 0
 music_text_channels = {}  # guild_id -> text channel id để đăng "đang phát" kiểu Apple Music
 
+MUSIC_DIR = "/tmp/bot_music"
+os.makedirs(MUSIC_DIR, exist_ok=True)
+
+def _download_song(song):
+    """Tải bài hát về file local rồi mới phát (tránh lỗi 403 khi stream trực tiếp)."""
+    import glob
+    import hashlib
+    url = song.get("webpage_url") or song.get("url")
+    if not url:
+        return None
+    key = hashlib.md5(url.encode()).hexdigest()[:12]
+    existing = glob.glob(os.path.join(MUSIC_DIR, f"{key}.*"))
+    if existing:
+        return existing[0]
+    outtmpl = os.path.join(MUSIC_DIR, f"{key}.%(ext)s")
+    opts = dict(YTDL_OPTS)
+    opts.update({"format": "bestaudio/best", "outtmpl": outtmpl})
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        print(f"download failed ({url}):", e)
+        return None
+    got = glob.glob(os.path.join(MUSIC_DIR, f"{key}.*"))
+    return got[0] if got else None
+
+
 def _trend_songs():
     global trend_query_index
     query = TREND_QUERIES[trend_query_index % len(TREND_QUERIES)]
@@ -927,8 +954,12 @@ async def _play_next(guild_id, voice_client):
     if not queue:
         return
     song = queue.pop(0)
+    local = await asyncio.to_thread(_download_song, song)
     try:
-        source = discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTS)
+        if local:
+            source = discord.FFmpegPCMAudio(local, **FFMPEG_OPTS)
+        else:
+            source = discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTS)
     except Exception as e:
         print("music error: không tạo được audio:", repr(e))
         coro = _play_next(guild_id, voice_client)
