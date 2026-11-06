@@ -795,9 +795,8 @@ YTDL_OPTS = {
 # -reconnect chỉ có tác dụng với link http, dùng cho file local sẽ lỗi "Option reconnect not found"
 FFMPEG_OPTS_URL = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn",
 }
-FFMPEG_OPTS_FILE = {"options": "-vn"}
+FFMPEG_OPTS_FILE = {}
 music_queues = {}  # guild_id -> list of (title, audio_url)
 trend_mode = set()  # guild_id đang phát nhạc hot trend 24/7
 TREND_CHANNEL_NAME = "Nhạc hot trend"
@@ -1039,7 +1038,8 @@ async def _play_next_locked(guild_id, voice_client):
             continue
         g = client.get_guild(guild_id)
         vs = g.me.voice if g and g.me else None
-        print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
+        _sock = getattr(voice_client._connection, "socket", None)
+        print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} mode={voice_client.mode} dave={bool(voice_client._connection.dave_session)} can_encrypt={voice_client._connection.can_encrypt} sock_fileno={_sock.fileno() if _sock is not None and _sock is not discord.utils.MISSING else None} endpoint={voice_client.endpoint} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
         break
     if guild_id in trend_mode:
         guild = client.get_guild(guild_id)
