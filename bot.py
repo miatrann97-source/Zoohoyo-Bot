@@ -672,6 +672,26 @@ async def update_board_loop():
     await update_board_once()
 
 
+@tasks.loop(minutes=2)
+async def voice_watchdog():
+    """Bot rớt khỏi voice thì tự vô lại kênh Nhạc hot trend."""
+    for guild in client.guilds:
+        if guild.id not in trend_mode:
+            continue
+        vc = guild.voice_client
+        if vc is not None and vc.is_connected():
+            continue
+        for ch in guild.voice_channels:
+            if TREND_CHANNEL_NAME.lower() in ch.name.strip().lower():
+                try:
+                    vc = await ch.connect()
+                    print(f"voice_watchdog: đã vô lại kênh trend: {ch.name}")
+                    await _play_next(guild.id, vc)
+                except Exception as e:
+                    print("voice_watchdog failed:", e)
+                break
+
+
 @tasks.loop(minutes=5)
 async def trend_loop():
     for guild in client.guilds:
@@ -692,6 +712,8 @@ async def on_ready():
         update_board_loop.start()
     if not trend_loop.is_running():
         trend_loop.start()
+    if not voice_watchdog.is_running():
+        voice_watchdog.start()
     # Ở lại voice 24/24: vô lại kênh voice đã lưu trước khi bot khởi động lại
     try:
         with open("voice.json", "r", encoding="utf-8") as f:
@@ -1050,6 +1072,26 @@ async def boi(interaction: discord.Interaction):
         await interaction.response.send_message("Bỏ qua bài này, sang bài tiếp ⏭️")
     else:
         await interaction.response.send_message("Đâu có nhạc đang phát đâu 😅", ephemeral=True)
+
+@tree.command(name="vao", description="Gọi bot vào voice channel của An")
+async def vao(interaction: discord.Interaction):
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.response.send_message("An vào voice channel trước rồi gõ lại nha 🎧", ephemeral=True)
+        return
+    channel = interaction.user.voice.channel
+    vc = interaction.guild.voice_client
+    try:
+        if vc is None:
+            vc = await channel.connect()
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+    except discord.Forbidden:
+        await interaction.response.send_message("Bot chưa có quyền vào voice channel này. An cho bot quyền **Kết nối** và **Nói** trong kênh voice nha.")
+        return
+    with open("voice.json", "w", encoding="utf-8") as f:
+        json.dump({"guild_id": interaction.guild_id, "channel_id": channel.id}, f)
+    await interaction.response.send_message(f"Bot vô kênh **{channel.name}** rồi nè 🎧")
+
 
 @tree.command(name="trend", description="Phát nhạc hot trend liên tục trong voice channel")
 async def trend(interaction: discord.Interaction):
