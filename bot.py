@@ -1036,7 +1036,48 @@ def _norm_words(s):
     return s.split()
 
 
-_LYRIC_STOPWORDS = {"say", "hi", "anh", "trai", "tinh", "ha", "official", "music", "channel", "records", "entertainment", "show", "the", "and", "feat", "ft"}
+_LYRIC_STOPWORDS = {"say", "hi", "anh", "trai", "tinh", "ha", "official", "music", "channel", "records", "entertainment", "show", "the", "and", "feat", "ft", "lyrics", "lyric", "audio", "video", "mv", "remix", "remake", "cover", "version", "ver"}
+
+
+def _version_num(s):
+    """Số phiên bản trong tên bài ('(Version 2)', 'Ver 2', '(Bản 2)') hoặc None."""
+    m = re.search(r"\bversion\s*(\d+)|ver\.?\s*(\d+)|bản\s*(\d+)", s or "", flags=re.I)
+    if not m:
+        return None
+    return next((g for g in m.groups() if g), None)
+
+
+def _performer_tokens_from_title(title):
+    """Từ tên nghệ sĩ trong title: phần sau ' - ' và trong (feat. ...)/(cùng với ...)."""
+    toks = set()
+    t = (title or "")
+    parts = t.split("|")[0].split(" - ")
+    if len(parts) > 1:
+        raw = " ".join(parts[1:])
+        for chunk in re.split(r"[,/&+]|\bfeat\.?\b|\bft\.?\b|\bcùng với\b|\bx\b", raw, flags=re.I):
+            for w in _norm_words(chunk):
+                if len(w) > 2 and w not in _LYRIC_STOPWORDS:
+                    toks.add(w)
+    for m in re.finditer(r"\((?:feat\.?|ft\.?|cùng với)\s*([^)]*)\)", t, flags=re.I):
+        for chunk in re.split(r"[,/&+]", m.group(1)):
+            for w in _norm_words(chunk):
+                if len(w) > 2 and w not in _LYRIC_STOPWORDS:
+                    toks.add(w)
+    return toks
+
+
+def _performer_tokens_from_candidate(track_name, artist_name):
+    """Từ tên nghệ sĩ của kết quả LRCLIB: artistName + phần (feat. ...) trong trackName."""
+    toks = set()
+    for w in _norm_words(artist_name):
+        if len(w) > 2 and w not in _LYRIC_STOPWORDS:
+            toks.add(w)
+    for m in re.finditer(r"\((?:feat\.?|ft\.?|cùng với)\s*([^)]*)\)", track_name or "", flags=re.I):
+        for chunk in re.split(r"[,/&+]", m.group(1)):
+            for w in _norm_words(chunk):
+                if len(w) > 2 and w not in _LYRIC_STOPWORDS:
+                    toks.add(w)
+    return toks
 
 
 def _artist_tokens(title, artist):
@@ -1077,28 +1118,47 @@ def _parse_synced(synced_text):
     return [(s, t) for s, t in merged]
 
 
-def _lyrics_from_lrclib(title, artist, duration):
-    """Tìm lời bài hát trên LRCLIB (miễn phí, không cần key).
-    Trả về (lời thường, [(giây, dòng)] lời đồng bộ) hoặc (None, [])."""
-    name = _clean_song_title(title)
-    if not name:
-        return None, []
-    try:
-        url = "https://lrclib.net/api/search?" + urllib.parse.urlencode({"track_name": name})
-        req = urllib.request.Request(url, headers={"User-Agent": "ZoohoyoBot/1.0"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            results = json.loads(resp.read().decode("utf-8", "replace"))
-    except Exception as e:
-        print("lyrics search failed:", e)
-        return None, []
-    if not isinstance(results, list) or not results:
-        return None, []
+def _lrclib_search(track_name, artist_name=None):
+    params = {"track_name": track_name}
+    if artist_name:
+        params["artist_name"] = artist_name
+    url = "https://lrclib.net/api/search?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": "ZoohoyoBot/1.0"})
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    return data if isinstance(data, list) else []
+
+
+def _artist_hints(title, artist):
+    """Các tên nghệ sĩ/show để thử tìm kèm: uploader trước, rồi phần sau ' | ' trong title."""
+    hints = []
+    if artist and artist.strip():
+        hints.append(artist.strip())
+    parts = (title or "").split("|")
+    if len(parts) > 1:
+        show = parts[1].split("-")[0]
+        show = re.sub(r"\([^)]*\)", "", show)
+        show = re.sub(r"\[[^\]]*\]", "", show).strip()
+        if show and show.lower() not in [h.lower() for h in hints]:
+            hints.append(show)
+    return hints
+
+
+def _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver):
+    """Chấm điểm + lọc các kết quả LRCLIB, trả về (lời, synced_raw, điểm) tốt nhất."""
     artist_low = (artist or "").lower()
-    want_toks = _artist_tokens(title, artist)
     best = None
     best_synced_raw = ""
     best_score = -1
     for r in results:
+        # CHẶN LỜI SAI: khác phiên bản (Version 2 vs bản gốc) hoặc khác hẳn nghệ sĩ
+        # thì bỏ qua kết quả này — thà không có lời còn hơn hiện lời sai.
+        if title_ver is not None and _version_num(r.get("trackName") or "") != title_ver:
+            continue
+        if title_perfs:
+            cand_perfs = _performer_tokens_from_candidate(r.get("trackName") or "", r.get("artistName") or "")
+            if cand_perfs and title_perfs.isdisjoint(cand_perfs):
+                continue
         lyrics = (r.get("plainLyrics") or "").strip()
         synced_raw = (r.get("syncedLyrics") or "").strip()
         if not lyrics and synced_raw:
@@ -1122,6 +1182,38 @@ def _lyrics_from_lrclib(title, artist, duration):
             best_score = score
             best = lyrics
             best_synced_raw = synced_raw
+    return best, best_synced_raw, best_score
+
+
+def _lyrics_from_lrclib(title, artist, duration):
+    """Tìm lời bài hát trên LRCLIB (miễn phí, không cần key).
+    Trả về (lời thường, [(giây, dòng)] lời đồng bộ) hoặc (None, [])."""
+    name = _clean_song_title(title)
+    if not name:
+        return None, []
+    try:
+        results = _lrclib_search(name)
+    except Exception as e:
+        print("lyrics search failed:", e)
+        return None, []
+    want_toks = _artist_tokens(title, artist)
+    title_perfs = _performer_tokens_from_title(title)
+    title_ver = _version_num(title)
+    best, best_synced_raw, best_score = _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver)
+    # Nếu chưa khớp chắc chắn, thử tìm kèm tên nghệ sĩ (hữu ích với tên bài
+    # chung chung như SECRET — tìm theo tên bài không thì toàn ra bài nước ngoài).
+    if best is None or best_score < 3:
+        for hint in _artist_hints(title, artist):
+            try:
+                results2 = _lrclib_search(name, hint)
+            except Exception as e:
+                print("lyrics artist search failed:", e)
+                continue
+            b2, s2, sc2 = _pick_lyrics(results2, artist, duration, want_toks, title_perfs, title_ver)
+            if b2 is not None and sc2 > best_score:
+                best, best_synced_raw, best_score = b2, s2, sc2
+            if best_score >= 6:
+                break
     if best is None:
         return None, []
     return best.strip(), _parse_synced(best_synced_raw)
@@ -1134,7 +1226,7 @@ async def _fetch_lyrics(song):
     try:
         plain, synced = await asyncio.wait_for(
             asyncio.to_thread(_lyrics_from_lrclib, song.get("title", ""), song.get("artist", ""), song.get("duration") or 0),
-            timeout=8,
+            timeout=12,
         )
     except Exception as e:
         print("lyrics fetch failed:", e)
