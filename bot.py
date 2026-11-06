@@ -50,6 +50,43 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 for _n in ("discord.voice_client", "discord.player", "discord.voice_state", "discord.gateway"):
     logging.getLogger(_n).setLevel(logging.DEBUG)
 
+# --- FIX DAVE 14:41 PST 2026-11-06: discord.py 2.7.1 không bao giờ gọi
+# dave_session.prepare_transition() / execute_transition() nên session DAVE
+# không bao giờ ready (dave_proto=1, dave_ready=False, can_encrypt=False) và
+# server Discord bỏ tiếng của bot dù bot vẫn phát nhạc. Patch hai chỗ theo
+# đúng luồng DAVE (xem davey docs + daveprotocol.com):
+# - op 21 DAVE_PREPARE_TRANSITION: chuẩn bị session trước khi handler gốc gửi
+#   transition-ready (op 23).
+# - _execute_transition (chạy khi server gửi op 22): chuyển session sang key mới.
+from discord.voice_state import VoiceConnectionState as _VCS
+from discord.gateway import DiscordVoiceWebSocket as _DWS
+
+_orig_dave_recv = _DWS.received_message
+async def _patched_dave_recv(self, msg):
+    try:
+        if isinstance(msg, dict) and msg.get('op') == _DWS.DAVE_PREPARE_TRANSITION:
+            _d = msg.get('d') or {}
+            _ds = getattr(self._connection, 'dave_session', None)
+            if _ds is not None:
+                _ds.prepare_transition(int(_d.get('transition_id', 0)), int(_d.get('protocol_version', 1)))
+                print(f"DAVE prepare_transition id={_d.get('transition_id')} proto={_d.get('protocol_version')} status={_ds.status} ready={_ds.ready}")
+    except Exception as _e:
+        print(f"DAVE prepare_transition failed: {_e!r}")
+    await _orig_dave_recv(self, msg)
+_DWS.received_message = _patched_dave_recv
+
+_orig_dave_exec = _VCS._execute_transition
+async def _patched_dave_exec(self, transition_id):
+    await _orig_dave_exec(self, transition_id)
+    try:
+        _ds = getattr(self, 'dave_session', None)
+        if _ds is not None:
+            _ok = _ds.execute_transition(int(transition_id))
+            print(f"DAVE execute_transition id={transition_id} -> {_ok} status={_ds.status} ready={_ds.ready} can_encrypt={_ds.can_encrypt}")
+    except Exception as _e:
+        print(f"DAVE execute_transition failed: {_e!r}")
+_VCS._execute_transition = _patched_dave_exec
+
 
 # --- Cấu hình ---
 UPDATE_INTERVAL_MINUTES = 10  # cứ 10 phút sửa bảng một lần
