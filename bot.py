@@ -800,10 +800,12 @@ YTDL_OPTS = {
     # Dùng client Android của YouTube để khỏi bị chặn "Sign in to confirm you're not a bot"
     "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
 }
-FFMPEG_OPTS = {
+# -reconnect chỉ có tác dụng với link http, dùng cho file local sẽ lỗi "Option reconnect not found"
+FFMPEG_OPTS_URL = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn",
 }
+FFMPEG_OPTS_FILE = {"options": "-vn"}
 music_queues = {}  # guild_id -> list of (title, audio_url)
 trend_mode = set()  # guild_id đang phát nhạc hot trend 24/7
 TREND_CHANNEL_NAME = "Nhạc hot trend"
@@ -849,6 +851,10 @@ def _download_song(song):
         print(f"download failed ({url}):", e)
         return None
     got = glob.glob(os.path.join(MUSIC_DIR, f"{key}.*"))
+    if got and os.path.getsize(got[0]) > 30 * 1024 * 1024:
+        print(f"download skipped, file too big: {got[0]}")
+        os.remove(got[0])
+        return None
     return got[0] if got else None
 
 
@@ -864,12 +870,15 @@ def _trend_songs():
             out = []
             for e in info.get("entries", []) or []:
                 if e and e.get("url"):
+                    dur = e.get("duration") or 0
+                    if dur and dur > 480:
+                        continue  # bỏ mix/set dài trên 8 phút
                     out.append({
                         "title": e.get("title", "Bài hát"),
                         "url": e["url"],
                         "artist": e.get("uploader", e.get("channel", "Không rõ nghệ sĩ")),
                         "thumbnail": e.get("thumbnail"),
-                        "duration": e.get("duration") or 0,
+                        "duration": dur,
                         "webpage_url": e.get("webpage_url", ""),
                     })
             if out:
@@ -963,40 +972,52 @@ def find_music_text_channel(guild):
     return None
 
 
+play_locks = {}
+
 async def _play_next(guild_id, voice_client):
-    queue = music_queues.get(guild_id, [])
-    if not queue and guild_id in trend_mode:
+    lock = play_locks.setdefault(guild_id, asyncio.Lock())
+    if lock.locked():
+        return
+    async with lock:
+        await _play_next_locked(guild_id, voice_client)
+
+
+async def _play_next_locked(guild_id, voice_client):
+    if voice_client.is_playing() or voice_client.is_paused():
+        return
+    while True:
+        queue = music_queues.get(guild_id, [])
+        if not queue and guild_id in trend_mode:
+            try:
+                songs = await asyncio.to_thread(_trend_songs)
+            except Exception as e:
+                print("trend search error:", e)
+                songs = []
+            music_queues[guild_id] = list(songs)
+            queue = music_queues[guild_id]
+        if not queue:
+            return
+        song = queue.pop(0)
+        local = await asyncio.to_thread(_download_song, song)
         try:
-            songs = await asyncio.to_thread(_trend_songs)
+            if local:
+                source = discord.FFmpegPCMAudio(local, **FFMPEG_OPTS_FILE)
+            else:
+                source = discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTS_URL)
         except Exception as e:
-            print("trend search error:", e)
-            songs = []
-        music_queues[guild_id] = list(songs)
-        queue = music_queues[guild_id]
-    if not queue:
-        return
-    song = queue.pop(0)
-    local = await asyncio.to_thread(_download_song, song)
-    try:
-        if local:
-            source = discord.FFmpegPCMAudio(local, **FFMPEG_OPTS)
-        else:
-            source = discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTS)
-    except Exception as e:
-        print("music error: không tạo được audio:", repr(e))
-        coro = _play_next(guild_id, voice_client)
-        asyncio.run_coroutine_threadsafe(coro, client.loop)
-        return
-    def after(err):
-        if err:
-            print("music error:", err)
-        coro = _play_next(guild_id, voice_client)
-        asyncio.run_coroutine_threadsafe(coro, client.loop)
-    try:
-        voice_client.play(source, after=after)
-    except Exception as e:
-        print("music error: không phát được:", repr(e))
-        return
+            print("music error: không tạo được audio:", repr(e))
+            continue
+        def after(err):
+            if err:
+                print("music error:", err)
+            coro = _play_next(guild_id, voice_client)
+            asyncio.run_coroutine_threadsafe(coro, client.loop)
+        try:
+            voice_client.play(source, after=after)
+        except Exception as e:
+            print("music error: không phát được:", repr(e))
+            continue
+        break
     if guild_id in trend_mode:
         guild = client.get_guild(guild_id)
         ch = None
