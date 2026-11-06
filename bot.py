@@ -21,9 +21,12 @@
 #
 # Muốn đổi kênh đặt bảng: vào kênh mới gõ lại /poststatus là xong.
 
+import asyncio
 import json
 import os
 import random
+
+import yt_dlp
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -703,6 +706,111 @@ async def on_message(message):
     save_wordchain(reply.split()[-1], used, reply)
     await message.channel.send(reply)
 
+
+
+# --- Nhạc: phát nhạc YouTube vào voice channel ---
+YTDL_OPTS = {
+    "format": "bestaudio/best",
+    "noplaylist": True,
+    "quiet": True,
+    "no_warnings": True,
+    "default_search": "ytsearch1",
+    "source_address": "0.0.0.0",
+}
+FFMPEG_OPTS = {
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "options": "-vn",
+}
+music_queues = {}  # guild_id -> list of (title, audio_url)
+
+def _ytdl_info(query):
+    with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
+        info = ydl.extract_info(query, download=False)
+        if "entries" in info:
+            info = info["entries"][0]
+        return info.get("title", "Bài hát"), info.get("url")
+
+async def _play_next(guild_id, voice_client):
+    queue = music_queues.get(guild_id, [])
+    if not queue:
+        return
+    title, url = queue.pop(0)
+    source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTS)
+    def after(err):
+        if err:
+            print("music error:", err)
+        coro = _play_next(guild_id, voice_client)
+        asyncio.run_coroutine_threadsafe(coro, client.loop)
+    voice_client.play(source, after=after)
+
+@tree.command(name="nhac", description="Phát nhạc YouTube: /nhac tên bài hát hoặc link")
+@app_commands.describe(bai="Tên bài hát hoặc link YouTube")
+async def nhac(interaction: discord.Interaction, bai: str):
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.response.send_message("An vào voice channel trước rồi gõ lại nha 🎧", ephemeral=True)
+        return
+    await interaction.response.defer()
+    try:
+        title, url = await asyncio.to_thread(_ytdl_info, bai)
+    except Exception as e:
+        await interaction.followup.send(f"Không tìm được bài này, YouTube chặn rồi thử bài khác nha 😢 ({e})")
+        return
+    if not url:
+        await interaction.followup.send("Không lấy được nhạc của bài này, thử bài khác nha 😢")
+        return
+    channel = interaction.user.voice.channel
+    vc = interaction.guild.voice_client
+    try:
+        if vc is None:
+            vc = await channel.connect()
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+    except discord.Forbidden:
+        await interaction.followup.send("Bot chưa có quyền vào voice channel này. An cho bot quyền **Kết nối** và **Nói** trong kênh voice nha.")
+        return
+    music_queues.setdefault(interaction.guild_id, []).append((title, url))
+    if not vc.is_playing() and not vc.is_paused():
+        await _play_next(interaction.guild_id, vc)
+        await interaction.followup.send(f"Đang phát nè 🎵 **{title}**")
+    else:
+        await interaction.followup.send(f"Đã thêm vào hàng chờ 🎵 **{title}**")
+
+@tree.command(name="dung", description="Tạm dừng nhạc")
+async def dung(interaction: discord.Interaction):
+    vc = interaction.guild.voice_client
+    if vc and vc.is_playing():
+        vc.pause()
+        await interaction.response.send_message("Tạm dừng nhạc rồi ⏸️")
+    else:
+        await interaction.response.send_message("Đâu có nhạc đang phát đâu 😅", ephemeral=True)
+
+@tree.command(name="tiep", description="Phát tiếp nhạc đang tạm dừng")
+async def tiep(interaction: discord.Interaction):
+    vc = interaction.guild.voice_client
+    if vc and vc.is_paused():
+        vc.resume()
+        await interaction.response.send_message("Phát tiếp nè ▶️")
+    else:
+        await interaction.response.send_message("Không có nhạc đang tạm dừng 😅", ephemeral=True)
+
+@tree.command(name="boi", description="Bỏ qua bài đang phát, sang bài tiếp theo")
+async def boi(interaction: discord.Interaction):
+    vc = interaction.guild.voice_client
+    if vc and (vc.is_playing() or vc.is_paused()):
+        vc.stop()
+        await interaction.response.send_message("Bỏ qua bài này, sang bài tiếp ⏭️")
+    else:
+        await interaction.response.send_message("Đâu có nhạc đang phát đâu 😅", ephemeral=True)
+
+@tree.command(name="roi", description="Bot rời khỏi voice channel")
+async def roi(interaction: discord.Interaction):
+    vc = interaction.guild.voice_client
+    if vc:
+        music_queues[interaction.guild_id] = []
+        await vc.disconnect()
+        await interaction.response.send_message("Bot về rồi đây 👋")
+    else:
+        await interaction.response.send_message("Bot đâu có trong voice đâu 😅", ephemeral=True)
 
 @tree.command(name="choilai", description="Xoá hết tin trong kênh này rồi chơi nối từ lại từ đầu")
 async def choilai(interaction: discord.Interaction):
