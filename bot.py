@@ -704,6 +704,28 @@ async def on_message(message):
     await message.channel.send(reply)
 
 
+@tree.command(name="choilai", description="Xoá hết tin trong kênh này rồi chơi nối từ lại từ đầu")
+async def choilai(interaction: discord.Interaction):
+    if interaction.channel_id != WORDCHAIN_CHANNEL_ID:
+        await interaction.response.send_message("Lệnh này chỉ dùng ở kênh khu-vui-choi thôi nha.", ephemeral=True)
+        return
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Chỉ admin mới xoá kênh chơi lại được nha.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        deleted = await interaction.channel.purge(limit=500)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "Bom chưa có quyền xoá tin trong kênh này. An vào Cài đặt kênh khu-vui-choi → Quyền → cho Bot tuất quyền **Quản lý tin nhắn** rồi gõ lại /choilai nha.",
+            ephemeral=True,
+        )
+        return
+    save_wordchain("sang", {"trang sang"}, "trang sang")
+    await interaction.channel.send("Chơi lại từ đầu nè! 🎉\n\n**trang sang**")
+    await interaction.followup.send(f"Xong rồi, đã xoá {len(deleted)} tin và chơi lại từ đầu.", ephemeral=True)
+
+
 @tree.command(name="goiy", description="Gợi ý 1 từ nối tiếp hợp lệ (từ điển thật)")
 async def goiy(interaction: discord.Interaction):
     if interaction.channel_id != WORDCHAIN_CHANNEL_ID:
