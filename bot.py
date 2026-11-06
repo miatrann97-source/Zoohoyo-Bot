@@ -676,14 +676,18 @@ async def on_ready():
         if channel is not None and guild.voice_client is None:
             await channel.connect()
             print(f"Đã vô lại voice: {channel.name}")
+    except FileNotFoundError:
+        pass  # chưa lưu kênh voice nào, lần đầu chạy là bình thường
     except (OSError, ValueError, KeyError, AttributeError, discord.DiscordException) as e:
         print("Không vô lại voice được:", e)
     # Vô kênh "Nhạc hot trend" và phát nhạc trend 24/7
     for guild in client.guilds:
         if guild.voice_client is not None:
             continue
+        found_trend = False
         for ch in guild.voice_channels:
-            if ch.name.strip().lower() == TREND_CHANNEL_NAME.lower():
+            if TREND_CHANNEL_NAME.lower() in ch.name.strip().lower():
+                found_trend = True
                 try:
                     vc = await ch.connect()
                     trend_mode.add(guild.id)
@@ -694,6 +698,9 @@ async def on_ready():
                 except discord.DiscordException as e:
                     print("Không vô kênh trend được:", e)
                 break
+        if not found_trend:
+            print("Không tìm thấy kênh Nhạc hot trend. Các kênh voice:",
+                  [c.name for g in client.guilds for c in g.voice_channels])
 
 
 @client.event
