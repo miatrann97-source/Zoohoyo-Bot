@@ -87,6 +87,33 @@ async def _patched_dave_exec(self, transition_id):
         print(f"DAVE execute_transition failed: {_e!r}")
 _VCS._execute_transition = _patched_dave_exec
 
+# --- FIX DAVE (bổ sung) 15:00 PST 2026-11-06: server không phải lúc nào cũng
+# gửi op 21 sau khi có người vào kênh — nó chỉ gửi op 29/30 (MLS commit /
+# welcome, frame nhị phân). Theo davey docs, sau process_commit/process_welcome
+# phải gọi prepare_transition thì session mới dùng được key mới. discord.py
+# cũng không gọi ở đây. Patch thêm received_binary_message để gọi
+# prepare_transition ngay sau khi handler gốc xử lý xong op 29/30.
+_orig_dave_recv_bin = _DWS.received_binary_message
+async def _patched_dave_recv_bin(self, msg):
+    _op = None
+    _tid = 0
+    try:
+        if isinstance(msg, (bytes, bytearray)) and len(msg) >= 5:
+            _op = msg[2]
+            _tid = int.from_bytes(msg[3:5], 'big')
+    except Exception:
+        _op = None
+    await _orig_dave_recv_bin(self, msg)
+    try:
+        if _op in (_DWS.MLS_ANNOUNCE_COMMIT_TRANSITION, _DWS.MLS_WELCOME):
+            _ds = getattr(self._connection, 'dave_session', None)
+            if _ds is not None:
+                _ds.prepare_transition(_tid, int(getattr(self._connection, 'dave_protocol_version', 1)))
+                print(f"DAVE prepare_transition (bin op={_op}) id={_tid} status={_ds.status} ready={_ds.ready}")
+    except Exception as _e:
+        print(f"DAVE prepare_transition (bin) failed: {_e!r}")
+_DWS.received_binary_message = _patched_dave_recv_bin
+
 
 # --- Cấu hình ---
 UPDATE_INTERVAL_MINUTES = 10  # cứ 10 phút sửa bảng một lần
