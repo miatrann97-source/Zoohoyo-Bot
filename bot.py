@@ -667,6 +667,17 @@ async def on_ready():
     await update_board_once()
     if not update_board_loop.is_running():
         update_board_loop.start()
+    # Ở lại voice 24/24: vô lại kênh voice đã lưu trước khi bot khởi động lại
+    try:
+        with open("voice.json", "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        guild = client.get_guild(int(saved["guild_id"]))
+        channel = guild.get_channel(int(saved["channel_id"])) if guild else None
+        if channel is not None and guild.voice_client is None:
+            await channel.connect()
+            print(f"Đã vô lại voice: {channel.name}")
+    except (OSError, ValueError, KeyError, AttributeError, discord.DiscordException) as e:
+        print("Không vô lại voice được:", e)
 
 
 @client.event
@@ -768,6 +779,8 @@ async def nhac(interaction: discord.Interaction, bai: str):
     except discord.Forbidden:
         await interaction.followup.send("Bot chưa có quyền vào voice channel này. An cho bot quyền **Kết nối** và **Nói** trong kênh voice nha.")
         return
+    with open("voice.json", "w", encoding="utf-8") as f:
+        json.dump({"guild_id": interaction.guild_id, "channel_id": channel.id}, f)
     music_queues.setdefault(interaction.guild_id, []).append((title, url))
     if not vc.is_playing() and not vc.is_paused():
         await _play_next(interaction.guild_id, vc)
@@ -807,6 +820,10 @@ async def roi(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
     if vc:
         music_queues[interaction.guild_id] = []
+        try:
+            os.remove("voice.json")
+        except OSError:
+            pass
         await vc.disconnect()
         await interaction.response.send_message("Bot về rồi đây 👋")
     else:
