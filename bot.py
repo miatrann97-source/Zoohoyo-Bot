@@ -31,6 +31,18 @@ from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
+# --- Chẩn đoán voice: in ra để xem vì sao discord.py báo thiếu thư viện voice ---
+try:
+    import nacl as _nacl
+    print("nacl import OK:", getattr(_nacl, "__version__", "?"))
+except Exception as e:
+    print("nacl import FAILED:", repr(e))
+try:
+    from discord.voice_client import has_nacl as _has_nacl
+    print("discord has_nacl:", _has_nacl)
+except Exception as e:
+    print("has_nacl check FAILED:", repr(e))
+
 from discord.ext import tasks
 
 # --- Cấu hình ---
