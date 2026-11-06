@@ -25,6 +25,9 @@ import asyncio
 import json
 import os
 import random
+import re
+import urllib.parse
+import urllib.request
 
 import yt_dlp
 from datetime import datetime, timedelta, timezone
@@ -868,6 +871,7 @@ FFMPEG_OPTS_URL = {
 }
 FFMPEG_OPTS_FILE = {}
 music_queues = {}  # guild_id -> list of (title, audio_url)
+now_playing = {}  # guild_id -> song đang phát (để nút 📜 lấy lời)
 trend_mode = set()  # guild_id đang phát nhạc hot trend 24/7
 TREND_CHANNEL_NAME = "Nhạc hot trend"
 # Danh sách nhạc trend xoay vòng: show Việt + US-UK + Việt-Hàn hot TikTok 2020-2027
@@ -974,6 +978,73 @@ def _fmt_duration(sec):
     return f"{sec // 60}:{sec % 60:02d}"
 
 
+def _clean_song_title(title):
+    """Rút gọn tên bài để tìm lời: bỏ (feat...), [..], phần sau ' | ' và ' - '."""
+    t = (title or "").strip()
+    t = re.sub(r"\([^)]*\)", "", t)
+    t = re.sub(r"\[[^\]]*\]", "", t)
+    t = t.split("|")[0].split(" - ")[0]
+    return t.strip(" -\u2013\u2014| \t")
+
+
+def _lyrics_from_lrclib(title, artist, duration):
+    """Tìm lời bài hát trên LRCLIB (miễn phí, không cần key). Trả về lời hoặc None."""
+    name = _clean_song_title(title)
+    if not name:
+        return None
+    try:
+        url = "https://lrclib.net/api/search?" + urllib.parse.urlencode({"track_name": name})
+        req = urllib.request.Request(url, headers={"User-Agent": "ZoohoyoBot/1.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            results = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:
+        print("lyrics search failed:", e)
+        return None
+    if not isinstance(results, list) or not results:
+        return None
+    artist_low = (artist or "").lower()
+    best = None
+    best_score = -1
+    for r in results:
+        lyrics = (r.get("plainLyrics") or "").strip()
+        if not lyrics:
+            synced = (r.get("syncedLyrics") or "").strip()
+            if synced:
+                lyrics = "\n".join(re.sub(r"^\[\d+:\d+(?:\.\d+)?\]\s*", "", ln) for ln in synced.splitlines()).strip()
+        if not lyrics or r.get("instrumental"):
+            continue
+        score = 0
+        dur = r.get("duration") or 0
+        if duration and dur:
+            if abs(dur - duration) <= 10:
+                score += 3
+            elif abs(dur - duration) <= 30:
+                score += 1
+        an = (r.get("artistName") or "").lower()
+        if artist_low and an and (artist_low in an or an in artist_low):
+            score += 2
+        if score > best_score:
+            best_score = score
+            best = lyrics
+    return best.strip() if best else None
+
+
+async def _fetch_lyrics(song):
+    """Lấy lời bài hát (nếu có) rồi lưu vào song['lyrics']. Lỗi thì thôi, không chặn nhạc."""
+    if "lyrics" in song:
+        return song.get("lyrics")
+    try:
+        lyrics = await asyncio.wait_for(
+            asyncio.to_thread(_lyrics_from_lrclib, song.get("title", ""), song.get("artist", ""), song.get("duration") or 0),
+            timeout=8,
+        )
+    except Exception as e:
+        print("lyrics fetch failed:", e)
+        lyrics = None
+    song["lyrics"] = lyrics
+    return lyrics
+
+
 def _now_playing_embed(song):
     embed = discord.Embed(
         title=f"🎵 {song['title']}",
@@ -984,6 +1055,11 @@ def _now_playing_embed(song):
         embed.set_thumbnail(url=song["thumbnail"])
     bar = "━━━━━━●━━━━━━━━━━"
     embed.add_field(name="Đang phát", value=f"{bar}\n0:00  •  {_fmt_duration(song.get('duration'))}", inline=False)
+    if song.get("lyrics"):
+        preview = song["lyrics"].strip()
+        if len(preview) > 990:
+            preview = preview[:990] + "\n…"
+        embed.add_field(name="📜 Lời bài hát", value=preview, inline=False)
     if song.get("webpage_url"):
         embed.add_field(name="Nghe trên YouTube", value=song["webpage_url"], inline=False)
     embed.set_footer(text="Bot tuất Music  •  giống Apple Music")
@@ -1015,6 +1091,29 @@ class MusicControls(discord.ui.View):
         if vc and (vc.is_playing() or vc.is_paused()):
             vc.stop()
         await interaction.response.defer()
+
+    @discord.ui.button(emoji="📜", style=discord.ButtonStyle.secondary)
+    async def lyrics(self, interaction: discord.Interaction, button: discord.ui.Button):
+        song = now_playing.get(self.guild_id)
+        text = ((song or {}).get("lyrics") or "").strip()
+        if not text:
+            await interaction.response.send_message("Bài này chưa tìm thấy lời 😢", ephemeral=True)
+            return
+        chunks = []
+        while text:
+            if len(text) <= 1900:
+                chunks.append(text)
+                break
+            cut = text.rfind("\n\n", 0, 1900)
+            if cut < 500:
+                cut = text.rfind("\n", 0, 1900)
+            if cut < 500:
+                cut = 1900
+            chunks.append(text[:cut])
+            text = text[cut:].lstrip("\n")
+        await interaction.response.send_message(chunks[0], ephemeral=True)
+        for c in chunks[1:]:
+            await interaction.followup.send(c, ephemeral=True)
 
     @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1111,6 +1210,8 @@ async def _play_next_locked(guild_id, voice_client):
         _sock = getattr(voice_client._connection, "socket", None)
         _ds = voice_client._connection.dave_session
         print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} mode={voice_client.mode} dave_proto={voice_client._connection.dave_protocol_version} dave_ready={_ds.ready if _ds else None} can_encrypt={voice_client._connection.can_encrypt} sock_fileno={_sock.fileno() if _sock is not None and _sock is not discord.utils.MISSING else None} endpoint={voice_client.endpoint} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
+        await _fetch_lyrics(song)
+        now_playing[guild_id] = song
         break
     if guild_id in trend_mode:
         guild = client.get_guild(guild_id)
@@ -1141,6 +1242,7 @@ async def nhac(interaction: discord.Interaction, bai: str):
     if not song.get("url"):
         await interaction.followup.send("Không lấy được nhạc của bài này, thử bài khác nha 😢")
         return
+    await _fetch_lyrics(song)
     channel = interaction.user.voice.channel
     vc = interaction.guild.voice_client
     try:
