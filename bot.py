@@ -678,18 +678,9 @@ async def voice_watchdog():
     for guild in client.guilds:
         if guild.id not in trend_mode:
             continue
-        vc = guild.voice_client
-        if vc is not None and vc.is_connected():
-            continue
-        for ch in guild.voice_channels:
-            if TREND_CHANNEL_NAME.lower() in ch.name.strip().lower():
-                try:
-                    vc = await ch.connect()
-                    print(f"voice_watchdog: đã vô lại kênh trend: {ch.name}")
-                    await _play_next(guild.id, vc)
-                except Exception as e:
-                    print("voice_watchdog failed:", e)
-                break
+        vc = await _ensure_connected(guild)
+        if vc is not None and not vc.is_playing() and not vc.is_paused():
+            await _play_next(guild.id, vc)
 
 
 @tasks.loop(minutes=5)
@@ -741,6 +732,7 @@ async def on_ready():
                     with open("voice.json", "w", encoding="utf-8") as f:
                         json.dump({"guild_id": guild.id, "channel_id": ch.id}, f)
                     print(f"Đã vô kênh trend: {ch.name}")
+                    await asyncio.sleep(2)
                     await _play_next(guild.id, vc)
                 except Exception as e:
                     print("Không vô kênh trend được:", e)
@@ -972,6 +964,28 @@ def find_music_text_channel(guild):
     return None
 
 
+async def _ensure_connected(guild):
+    """Đảm bảo bot đang ở trong voice. Rớt ra thì vô lại kênh trend."""
+    vc = guild.voice_client
+    if vc is not None and vc.is_connected():
+        return vc
+    if vc is not None:
+        try:
+            await vc.disconnect(force=True)
+        except Exception:
+            pass
+    for ch in guild.voice_channels:
+        if TREND_CHANNEL_NAME.lower() in ch.name.strip().lower():
+            try:
+                vc = await ch.connect()
+                print(f"đã vô lại kênh trend: {ch.name}")
+                return vc
+            except Exception as e:
+                print("reconnect voice failed:", e)
+                return None
+    return None
+
+
 play_locks = {}
 
 async def _play_next(guild_id, voice_client):
@@ -983,6 +997,12 @@ async def _play_next(guild_id, voice_client):
 
 
 async def _play_next_locked(guild_id, voice_client):
+    guild = client.get_guild(guild_id)
+    if guild is not None:
+        vc = await _ensure_connected(guild)
+        if vc is None:
+            return
+        voice_client = vc
     if voice_client.is_playing() or voice_client.is_paused():
         return
     while True:
