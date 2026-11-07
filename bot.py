@@ -691,6 +691,24 @@ def load_vocabulary():
 VOCABULARY = load_vocabulary()
 
 
+def load_wiki_phrases():
+    phrases = set()
+    try:
+        with open("tu_dien_wiki.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip().lower()
+                if line and not line.startswith("#"):
+                    phrases.add(line)
+    except OSError:
+        pass
+    return phrases
+
+
+# Cụm 2 từ có mục từ trên Wiktionary tiếng Việt: bot ưu tiên nối những
+# cụm này trước vì chắc chắn là từ có trong từ điển (xem tu_dien_wiki.txt).
+WIKI_PHRASES = load_wiki_phrases()
+
+
 def load_dictionary():
     phrases = set()
     try:
@@ -1467,8 +1485,12 @@ async def on_message(message):
     new_last = words[-1]
     save_wordchain(new_last, used, text)
     # Bot CHƠI CHUNG: chỉ nối bằng cụm có thật trong từ điển, không tự bịa.
-    # Ưu tiên WORD_BANK tự chọn (từ quen thuộc, lịch sự) trước, hết mới lấy từ điển.
+    # Thứ tự ưu tiên: WORD_BANK tự chọn (từ quen thuộc, lịch sự) →
+    # cụm có mục từ trên Wiktionary tiếng Việt → cụm còn lại trong từ điển.
     options = [q for q in WORD_BANK.get(new_last, []) if q not in used]
+    if not options:
+        options = [q for q in DICTIONARY.get(new_last, [])
+                   if q not in used and q in WIKI_PHRASES]
     if not options:
         options = [q for q in DICTIONARY.get(new_last, []) if q not in used]
     if not options:
