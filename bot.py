@@ -1118,6 +1118,86 @@ def _parse_synced(synced_text):
     return [(s, t) for s, t in merged]
 
 
+def _parse_vtt(vtt):
+    """Đổi file phụ đề WebVTT thành (lời thường, [(giây, dòng)]) để hát karaoke.
+    Bỏ thẻ <c>/<v>, bỏ [Nhạc]/[Music], gộp các dòng trùng nhau liên tiếp."""
+    lines = []
+    cur_start = None
+    buf = []
+
+    def flush():
+        nonlocal cur_start, buf
+        if cur_start is None or not buf:
+            return
+        text = " ".join(buf)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"\[[^\]]*\]", "", text)
+        text = " ".join(text.split()).strip()
+        if text:
+            lines.append((cur_start, text))
+        cur_start = None
+        buf = []
+
+    for raw in (vtt or "").splitlines():
+        line = raw.strip()
+        m = re.match(r"^(\d+):(\d+):(\d+)[.,](\d+)\s*-->", line)
+        if m:
+            flush()
+            h, mi, s, ms = (int(x) for x in m.groups())
+            cur_start = h * 3600 + mi * 60 + s + ms / 1000.0
+            buf = []
+            continue
+        if not line or line.upper().startswith("WEBVTT") or line.upper().startswith("NOTE"):
+            continue
+        if re.match(r"^\d+$", line):
+            continue
+        if cur_start is not None:
+            buf.append(line)
+    flush()
+    merged = []
+    for t, text in lines:
+        if merged and merged[-1][1] == text:
+            continue
+        merged.append((t, text))
+    if not merged:
+        return None, []
+    return "\n".join(t for _, t in merged), merged
+
+
+def _subtitles_from_youtube(webpage_url):
+    """Lấy phụ đề tiếng Việt của video YouTube (phụ đề thật trước, tự động sau)
+    để làm lời karaoke khi kho lời LRCLIB không có bài đó.
+    Trả về (lời thường, [(giây, dòng)]) hoặc (None, [])."""
+    if not webpage_url or ("youtube.com" not in webpage_url and "youtu.be" not in webpage_url):
+        return None, []
+    try:
+        with yt_dlp.YoutubeDL(dict(YTDL_OPTS)) as ydl:
+            info = ydl.extract_info(webpage_url, download=False)
+    except Exception as e:
+        print("subtitle info failed:", e)
+        return None, []
+    tracks = (info or {}).get("subtitles") or {}
+    auto = (info or {}).get("automatic_captions") or {}
+    vi = tracks.get("vi") or auto.get("vi") or []
+    vtt_url = None
+    for f in vi:
+        if f.get("ext") == "vtt" and f.get("url"):
+            vtt_url = f["url"]
+            break
+    if not vtt_url and vi:
+        vtt_url = vi[0].get("url")
+    if not vtt_url:
+        return None, []
+    try:
+        req = urllib.request.Request(vtt_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            vtt = resp.read().decode("utf-8", "replace")
+    except Exception as e:
+        print("subtitle download failed:", e)
+        return None, []
+    return _parse_vtt(vtt)
+
+
 def _lrclib_search(track_name, artist_name=None):
     params = {"track_name": track_name}
     if artist_name:
@@ -1236,6 +1316,28 @@ async def _fetch_lyrics(song):
     return plain
 
 
+async def _fetch_subtitles(song):
+    """Dự phòng khi LRCLIB không có lời: lấy phụ đề tiếng Việt của video YouTube
+    làm lời karaoke. Chỉ chạy khi bài chưa có lời đồng bộ. Lỗi thì thôi."""
+    if song.get("synced"):
+        return song.get("lyrics")
+    url = song.get("webpage_url") or ""
+    if not url:
+        return None
+    try:
+        plain, synced = await asyncio.wait_for(
+            asyncio.to_thread(_subtitles_from_youtube, url),
+            timeout=20,
+        )
+    except Exception as e:
+        print("subtitle fetch failed:", e)
+        return None
+    if plain:
+        song["lyrics"] = plain
+        song["synced"] = synced
+    return plain
+
+
 def _karaoke_embed(song, synced, idx):
     """Thẻ karaoke: dòng trước + dòng đang hát (in đậm) + 2 dòng sau."""
     embed = discord.Embed(title=f"🎤 {song['title']}", color=0xFA57C1)
@@ -1263,8 +1365,11 @@ async def _karaoke_start(guild_id, song, started_at):
     guild = client.get_guild(guild_id)
     ch = None
     if guild is not None:
-        ch_id = music_text_channels.get(guild_id)
-        ch = guild.get_channel(ch_id) if ch_id else find_music_text_channel(guild)
+        # Karaoke luôn ở kênh order-nhạc (nơi An nhìn), dù /nhac gõ ở kênh khác.
+        ch = find_music_text_channel(guild)
+        if ch is None:
+            ch_id = music_text_channels.get(guild_id)
+            ch = guild.get_channel(ch_id) if ch_id else None
         if ch is not None:
             music_text_channels[guild_id] = ch.id
     if ch is None:
@@ -1484,6 +1589,8 @@ async def _play_next_locked(guild_id, voice_client):
         _ds = voice_client._connection.dave_session
         print(f"Đang phát: {song['title']} | connected={voice_client.is_connected()} playing={voice_client.is_playing()} latency={voice_client.latency:.3f} mode={voice_client.mode} dave_proto={voice_client._connection.dave_protocol_version} dave_ready={_ds.ready if _ds else None} can_encrypt={voice_client._connection.can_encrypt} sock_fileno={_sock.fileno() if _sock is not None and _sock is not discord.utils.MISSING else None} endpoint={voice_client.endpoint} | voice state: mute={vs.mute if vs else None} deaf={vs.deaf if vs else None} self_mute={vs.self_mute if vs else None} self_deaf={vs.self_deaf if vs else None} suppress={vs.suppress if vs else None} channel={vs.channel.name if vs and vs.channel else None}")
         await _fetch_lyrics(song)
+        # Bài nào kho lời không có thì lấy phụ đề video làm lời karaoke.
+        await _fetch_subtitles(song)
         now_playing[guild_id] = song
         await _karaoke_start(guild_id, song, play_started)
         break
