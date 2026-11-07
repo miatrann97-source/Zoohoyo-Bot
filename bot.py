@@ -1519,7 +1519,7 @@ async def on_message(message):
         options = [q for q in DICTIONARY.get(new_last, []) if q not in used]
     if not options:
         await message.channel.send(
-            f"Đúng rồi {message.author.mention}! ✅ Tới **{new_last}** là Bom bí thật rồi, ai nối tiếp giúp Bom đi 😅"
+            f"Xin chịu thua {message.author.mention} 😅 Tới **{new_last}** là Bom không nối được rồi, ai nối tiếp giúp Bom đi!"
         )
         return
     reply = random.choice(options)
@@ -2551,7 +2551,7 @@ async def goiy(interaction: discord.Interaction):
         options = [w for w in DICTIONARY.get(last, []) if w not in used]
     if not options:
         await interaction.response.send_message(
-            f"Tới **{last}** là Bom cũng bí thật rồi, mọi người nghĩ giúp Bom đi 😅", ephemeral=False
+            f"Xin chịu thua 😅 Tới **{last}** là Bom cũng không nối được rồi, mọi người nghĩ giúp Bom đi!", ephemeral=False
         )
         return
     await interaction.response.send_message(f"Gợi ý nè: **{options[0]}** — tới **{options[0].split()[-1]}** nha!")
