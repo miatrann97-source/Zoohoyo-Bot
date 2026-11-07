@@ -1447,14 +1447,18 @@ async def _karaoke_start(guild_id, song, started_at):
         "started_at": started_at,
         "paused_at": None,
         "line_idx": 0,
-        "msg": st.get("msg") if st else None,
+        "msg": None,
     }
     karaoke_state[guild_id] = new_state
+    # Xoá tin karaoke cũ rồi đăng tin mới cho bài này, để tin karaoke nằm
+    # ngay dưới thẻ đang phát (tin cũ sửa tại chỗ sẽ bị chìm lên trên kênh).
+    if st and st.get("msg") is not None:
+        try:
+            await st["msg"].delete()
+        except discord.DiscordException:
+            pass
     try:
-        if new_state["msg"] is not None:
-            await new_state["msg"].edit(embed=_karaoke_embed(song, synced, 0))
-        else:
-            new_state["msg"] = await ch.send(embed=_karaoke_embed(song, synced, 0))
+        new_state["msg"] = await ch.send(embed=_karaoke_embed(song, synced, 0))
     except discord.DiscordException as e:
         print("karaoke send failed:", e)
         karaoke_state.pop(guild_id, None)
