@@ -776,18 +776,21 @@ def load_wordchain():
         with open(WORDCHAIN_FILE, "r", encoding="utf-8") as f:
             d = json.load(f)
             last = d.get("last", "mốt")
-            return last, set(d.get("used", [])), d.get("last_phrase", "mai mốt")
+            scores = d.get("scores", {}) or {}
+            return last, set(d.get("used", [])), d.get("last_phrase", "mai mốt"), scores
     except (OSError, ValueError):
         # Trạng thái hôm 2026-11-05: trang sang -> sang mai -> mai mốt
-        return "mốt", {"trang sang", "sang mai", "mai mốt"}, "mai mốt"
+        return "mốt", {"trang sang", "sang mai", "mai mốt"}, "mai mốt", {}
 
 
-def save_wordchain(last, used, last_phrase=None):
+def save_wordchain(last, used, last_phrase=None, scores=None):
+    if scores is None:
+        _l, _u, _p, scores = load_wordchain()
     try:
         with open(WORDCHAIN_FILE, "w", encoding="utf-8") as f:
             json.dump(
                 {"last": last, "used": sorted(used),
-                 "last_phrase": last_phrase or last},
+                 "last_phrase": last_phrase or last, "scores": scores},
                 f, ensure_ascii=False,
             )
     except OSError:
@@ -1493,7 +1496,7 @@ async def on_message(message):
     words = text.split()
     if len(words) > 2 or any(len(w) > 10 for w in words):
         return
-    last, used, _phrase = load_wordchain()
+    last, used, _phrase, scores = load_wordchain()
     if words[0] != last:
         await message.channel.send(
             f"Chưa đúng nha {message.author.mention} 🥺 Từ phải bắt đầu bằng **{last}**, "
@@ -1507,7 +1510,12 @@ async def on_message(message):
         return
     used.add(text)
     new_last = words[-1]
-    save_wordchain(new_last, used, text)
+    # Tính điểm: mỗi từ nối đúng được +1, xem bảng điểm bằng /diem.
+    uid = str(message.author.id)
+    scores[uid] = scores.get(uid, 0) + 1
+    total = scores[uid]
+    score_note = f" {message.author.mention} +1 điểm ⭐ (tổng {total} điểm)"
+    save_wordchain(new_last, used, text, scores)
     # Bot CHƠI CHUNG: chỉ nối bằng cụm có thật trong từ điển, không tự bịa.
     # Thứ tự ưu tiên: WORD_BANK tự chọn (từ quen thuộc, lịch sự) →
     # cụm có mục từ trên Wiktionary tiếng Việt → cụm còn lại trong từ điển.
@@ -1519,13 +1527,27 @@ async def on_message(message):
         options = [q for q in DICTIONARY.get(new_last, []) if q not in used]
     if not options:
         await message.channel.send(
-            f"Xin chịu thua {message.author.mention} 😅 Tới **{new_last}** là Bom không nối được rồi, ai nối tiếp giúp Bom đi!"
+            f"Xin chịu thua {message.author.mention} 😅 Tới **{new_last}** là Bom không nối được rồi, ai nối tiếp giúp Bom đi!{score_note}"
         )
         return
-    reply = random.choice(options)
+    # Tránh nối vào ngõ cụt: ưu tiên cụm mà từ cuối của nó còn nhiều
+    # đường nối tiếp nhất (vd "mới lạ" thay vì "mới mẻ", vì "mẻ" chỉ còn
+    # "mẻ lưới" rồi bí). Người chơi cũng cần biết âm tiếp theo là âm cuối
+    # của câu bot vừa nối, không phải âm đầu — nên bot báo rõ luôn.
+    def _next_count(q):
+        end = q.split()[-1]
+        return len(_continuations(end, used)) + len(
+            [x for x in DICTIONARY.get(end, []) if x not in used]
+        )
+
+    best = max(_next_count(q) for q in options)
+    best_options = [q for q in options if _next_count(q) == best]
+    reply = random.choice(best_options)
     used.add(reply)
-    save_wordchain(reply.split()[-1], used, reply)
-    await message.channel.send(reply)
+    save_wordchain(reply.split()[-1], used, reply, scores)
+    await message.channel.send(
+        f"{reply} 👉 tiếp theo bắt đầu bằng **{reply.split()[-1]}** nha!{score_note}"
+    )
 
 
 
@@ -2532,8 +2554,8 @@ async def choilai(interaction: discord.Interaction):
             ephemeral=True,
         )
         return
-    save_wordchain("sang", {"trang sang"}, "trang sang")
-    await interaction.channel.send("Chơi lại từ đầu nè! 🎉\n\n**trang sang**")
+    save_wordchain("sang", {"trang sang"}, "trang sang", {})
+    await interaction.channel.send("Chơi lại từ đầu nè! 🎉\n\n**trang sang**\n(Điểm cũng tính lại từ đầu luôn nha!)")
     await interaction.followup.send(f"Xong rồi, đã xoá {len(deleted)} tin và chơi lại từ đầu.", ephemeral=True)
 
 
@@ -2542,7 +2564,7 @@ async def goiy(interaction: discord.Interaction):
     if interaction.channel_id != WORDCHAIN_CHANNEL_ID:
         await interaction.response.send_message("Lệnh này chỉ dùng ở kênh khu-vui-choi thôi nha.", ephemeral=True)
         return
-    last, used, _phrase = load_wordchain()
+    last, used, _phrase, _scores = load_wordchain()
     options = [w for w in WORD_BANK.get(last, []) if w not in used]
     if not options:
         options = [w for w in DICTIONARY.get(last, [])
@@ -2554,7 +2576,32 @@ async def goiy(interaction: discord.Interaction):
             f"Xin chịu thua 😅 Tới **{last}** là Bom cũng không nối được rồi, mọi người nghĩ giúp Bom đi!", ephemeral=False
         )
         return
-    await interaction.response.send_message(f"Gợi ý nè: **{options[0]}** — tới **{options[0].split()[-1]}** nha!")
+    # Gợi ý cũng tránh ngõ cụt như lúc bot tự nối: chọn cụm mà từ cuối
+    # của nó còn nhiều đường nối tiếp nhất.
+    def _next_count(q):
+        end = q.split()[-1]
+        return len(_continuations(end, used)) + len(
+            [x for x in DICTIONARY.get(end, []) if x not in used]
+        )
+
+    best = max(_next_count(q) for q in options)
+    best_options = [q for q in options if _next_count(q) == best]
+    suggestion = random.choice(best_options)
+    await interaction.response.send_message(f"Gợi ý nè: **{suggestion}** — tới **{suggestion.split()[-1]}** nha!")
+
+
+@tree.command(name="diem", description="Xem bảng điểm game nối từ")
+async def diem(interaction: discord.Interaction):
+    if interaction.channel_id != WORDCHAIN_CHANNEL_ID:
+        await interaction.response.send_message("Lệnh này chỉ dùng ở kênh khu-vui-choi thôi nha.", ephemeral=True)
+        return
+    _last, _used, _phrase, scores = load_wordchain()
+    if not scores:
+        await interaction.response.send_message("Chưa ai có điểm nè, chơi một vòng đi! 🎲")
+        return
+    top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:10]
+    lines = [f"{i}. <@{uid}> — {pts} điểm" for i, (uid, pts) in enumerate(top, 1)]
+    await interaction.response.send_message("🏆 **Bảng điểm nối từ**\n" + "\n".join(lines))
 
 
 @tree.command(name="poststatus", description="Đặt bảng trạng thái Genshin ở kênh này")
