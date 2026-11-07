@@ -801,6 +801,7 @@ async def update_board_loop():
 # quote tiếng Việt vui nhộn + 1 prompt tương tác lên #chat-chung.
 # Quote/prompt xoay vòng theo ngày nên không lặp lại trong nhiều ngày.
 CHAT_CHUNG_CHANNEL_ID = 1411239353400688671  # #🌐-chat-chung
+DUA_NGUA_CHANNEL_ID = 1416270654327754835  # #cộng-đồng-đua-ngựa (Uma Musume)
 DAILY_POST_TIME_UTC = dt_time(hour=18, minute=48, tzinfo=timezone.utc)
 DAILY_STATE_FILE = "daily.json"
 DAILY_START_DATE = datetime(2026, 11, 7, tzinfo=timezone.utc).date()
@@ -1062,7 +1063,7 @@ async def _maybe_greet(message):
         print("greet failed:", e)
 
 
-# --- Re-embed: tự đăng lại nội dung link trong #chat-chung ---
+# --- Re-embed: tự đăng lại nội dung link trong #chat-chung và #cộng-đồng-đua-ngựa ---
 # Khi có bạn gửi link (X, Instagram, TikTok, Threads, Reddit, Pixiv, wiki,
 # Facebook, Bluesky, web bất kỳ), bot tự lấy nội dung sau link rồi đăng lại
 # thành thẻ embed đẹp ngay trong kênh, khỏi cần bấm ra ngoài.
@@ -1393,6 +1394,9 @@ async def on_message(message):
         return
     if message.channel.id == CHAT_CHUNG_CHANNEL_ID:
         await _maybe_greet(message)
+        await _maybe_reembed(message)
+        return
+    if message.channel.id == DUA_NGUA_CHANNEL_ID:
         await _maybe_reembed(message)
         return
     if message.channel.id != WORDCHAIN_CHANNEL_ID:
