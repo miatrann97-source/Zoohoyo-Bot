@@ -332,6 +332,10 @@ WORD_BANK = {
     "chuyện": [
         "chuyện trò"
     ],
+    "cua": [
+        "cua bể",
+        "cua đồng"
+    ],
     "công": [
         "công việc",
         "công ty"
@@ -415,6 +419,15 @@ WORD_BANK = {
     "giỏi": [
         "giỏi giang"
     ],
+    "gì": [
+        "gì vậy",
+        "gì đó"
+    ],
+    "giống": [
+        "giống nhau",
+        "giống hệt",
+        "giống nòi"
+    ],
     "giấc": [
         "giấc mơ"
     ],
@@ -434,6 +447,9 @@ WORD_BANK = {
     "hôm": [
         "hôm nay",
         "hôm qua"
+    ],
+    "huynh": [
+        "huynh đệ"
     ],
     "hứng": [
         "hứng thú"
@@ -464,6 +480,9 @@ WORD_BANK = {
     ],
     "lâu": [
         "lâu rồi"
+    ],
+    "lệnh": [
+        "lệnh cấm"
     ],
     "lớn": [
         "lớn lên"
@@ -530,6 +549,9 @@ WORD_BANK = {
     ],
     "nhà": [
         "nhà cửa"
+    ],
+    "nhau": [
+        "nhau thai"
     ],
     "nhanh": [
         "nhanh nhẹn"
@@ -672,6 +694,8 @@ BLOCKED_PHRASES = {
     # không phải cụm từ thông thường dù từng từ đều có trong từ điển):
     "hệ si", "ngọc phả", "sự thể", "mạng sườn", "bạc nhạc", "tử tuất",
     "đầu ối", "dào ôi", "ra ngôi",
+    # Thêm tối 2026-11-06 sau bản Wiktionary (người chơi "?" vì không hiểu):
+    "giống má", "cua bấy",
 }
 
 
@@ -2519,7 +2543,12 @@ async def goiy(interaction: discord.Interaction):
         await interaction.response.send_message("Lệnh này chỉ dùng ở kênh khu-vui-choi thôi nha.", ephemeral=True)
         return
     last, used, _phrase = load_wordchain()
-    options = [w for w in DICTIONARY.get(last, []) if w not in used]
+    options = [w for w in WORD_BANK.get(last, []) if w not in used]
+    if not options:
+        options = [w for w in DICTIONARY.get(last, [])
+                   if w not in used and w in WIKI_PHRASES]
+    if not options:
+        options = [w for w in DICTIONARY.get(last, []) if w not in used]
     if not options:
         await interaction.response.send_message(
             f"Tới **{last}** là Bom cũng bí thật rồi, mọi người nghĩ giúp Bom đi 😅", ephemeral=False
