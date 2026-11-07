@@ -1076,7 +1076,7 @@ def _norm_words(s):
     return s.split()
 
 
-_LYRIC_STOPWORDS = {"say", "hi", "anh", "trai", "tinh", "ha", "official", "music", "channel", "records", "entertainment", "show", "the", "and", "feat", "ft", "lyrics", "lyric", "audio", "video", "mv", "remix", "remake", "cover", "version", "ver"}
+_LYRIC_STOPWORDS = {"say", "hi", "anh", "trai", "tinh", "ha", "official", "music", "channel", "records", "entertainment", "show", "the", "and", "feat", "ft", "lyrics", "lyric", "audio", "video", "mv", "remix", "remake", "cover", "version", "ver", "xinh", "em", "vuot", "ngan", "chong", "gai", "chi", "dep", "dap", "gio", "song", "atvncg"}
 
 
 def _version_num(s):
@@ -1322,6 +1322,8 @@ def _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver):
         if want_toks:
             overlap = len(want_toks & set(_norm_words(r.get("artistName") or "")))
             score += min(6, 2 * overlap)
+        if r.get("syncedLyrics"):
+            score += 2  # ưu tiên bản có lời đồng bộ để chạy karaoke
         if score > best_score:
             best_score = score
             best = lyrics
