@@ -22,6 +22,7 @@
 # Muốn đổi kênh đặt bảng: vào kênh mới gõ lại /poststatus là xong.
 
 import asyncio
+import html
 import json
 import os
 import random
@@ -1061,12 +1062,338 @@ async def _maybe_greet(message):
         print("greet failed:", e)
 
 
+# --- Re-embed: tự đăng lại nội dung link trong #chat-chung ---
+# Khi có bạn gửi link (X, Instagram, TikTok, Threads, Reddit, Pixiv, wiki,
+# Facebook, Bluesky, web bất kỳ), bot tự lấy nội dung sau link rồi đăng lại
+# thành thẻ embed đẹp ngay trong kênh, khỏi cần bấm ra ngoài.
+# Hỏng ở bước nào thì im lặng bỏ qua, không spam lỗi vào kênh.
+# Đã kiểm chứng trực tiếp 2026-11-06: API FxEmbed v2, API FxBluesky v2,
+# trang InstagramFix, trang TikTxk, trang Phixiv, API Wikipedia,
+# còn Reddit .json trả 403 nên chỉ đổi domain sang vxreddit.
+
+_REEMBED_UA = "ZoohoyoBot/1.0 (Discord re-embed for Zoohoyo server)"
+_REEMBED_SEEN = {}  # url -> monotonic, tránh đăng lại cùng 1 link liên tục
+_REEMBED_COOLDOWN = 600  # 10 phút
+_REEMBED_FIXER_HOSTS = {
+    "fixupx.com", "fxtwitter.com", "vxtwitter.com", "fixvx.com",
+    "fxbsky.app", "vxbsky.app", "bskx.app",
+    "instagramfix.com", "uuinstagram.com", "eeinstagram.com", "vxinstagram.com",
+    "tiktxk.com", "tnktok.com", "tikembed.com",
+    "vxreddit.com", "rxddit.com", "redditez.com",
+    "fixthreads.net", "vxthreads.net",
+    "phixiv.net", "ppxiv.net",
+    "embeds.now", "facebed.com",
+}
+_REEMBED_SKIP_HOSTS = {
+    "youtube.com", "www.youtube.com", "youtu.be", "music.youtube.com",
+    "discord.com", "discord.gg", "discordapp.com",
+}
+_REEMBED_MEDIA_SUFFIX = (
+    ".jpg", ".jpeg", ".png", ".gif", ".webp",
+    ".mp4", ".webm", ".mov", ".mp3", ".wav", ".pdf",
+)
+
+
+def _http_get_text(url, timeout=8):
+    """GET một trang web, trả về text hoặc None khi lỗi."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _REEMBED_UA})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+        return raw.decode("utf-8", errors="replace")
+    except Exception as e:
+        print("reembed fetch failed:", url, repr(e))
+        return None
+
+
+def _http_get_json(url, timeout=8):
+    text = _http_get_text(url, timeout=timeout)
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
+def _og_tags(page):
+    """Đọc các thẻ OpenGraph/Twitter Card trong <head> thành dict."""
+    out = {}
+    if not page:
+        return out
+    for tag in re.finditer(r"<meta\s+[^>]*>", page, flags=re.IGNORECASE):
+        prop = re.search(
+            r'(?:property|name)=["\']([^"\']+)["\']', tag.group(0), flags=re.IGNORECASE
+        )
+        cont = re.search(
+            r'content=["\']([^"\']*)["\']', tag.group(0), flags=re.IGNORECASE
+        )
+        if prop and cont and cont.group(1):
+            key = prop.group(1).lower()
+            if key not in out:
+                out[key] = html.unescape(cont.group(1))
+    return out
+
+
+def _short(text, limit=2000):
+    text = (text or "").strip()
+    if len(text) > limit:
+        return text[:limit].rstrip() + "…"
+    return text
+
+
+def _rewrite_host(url, new_host):
+    parts = urllib.parse.urlparse(url)
+    return urllib.parse.urlunparse(parts._replace(netloc=new_host))
+
+
+def _first_url(text):
+    """Lấy link đầu tiên trong tin nhắn, bỏ qua link bị <...> bọc lại (người gửi đã tắt embed)."""
+    if not text:
+        return None
+    for m in re.finditer(r"https?://[^\s<>]+", text):
+        url = m.group(0).rstrip(".,!?)]}'\"")
+        if m.start() > 0 and text[m.start() - 1] == "<":
+            continue
+        return url
+    return None
+
+
+def _embed_base(title, url, color, footer):
+    embed = discord.Embed(title=_short(title, 256) or "Link", url=url, color=color)
+    if footer:
+        embed.set_footer(text=_short(footer, 2048))
+    return embed
+
+
+def _embed_from_fx(st, url, color, platform):
+    """Dựng embed từ JSON của API FxEmbed/FxBluesky (cùng một dạng trả về)."""
+    if not st.get("text"):
+        return None
+    author = st.get("author") or {}
+    name = author.get("name") or author.get("screen_name") or platform
+    handle = author.get("screen_name") or author.get("handle") or ""
+    title = f"{name} (@{handle})" if handle else name
+    footer = (
+        f"{platform} · ❤️ {st.get('likes', 0)} · "
+        f"🔁 {st.get('reposts', 0)} · 💬 {st.get('replies', 0)}"
+    )
+    embed = _embed_base(title, url, color, footer)
+    embed.description = _short(st.get("text"), 4000)
+    if author.get("avatar_url"):
+        embed.set_thumbnail(url=author["avatar_url"])
+    media = st.get("media") or {}
+    photos = media.get("photos") or []
+    if photos and photos[0].get("url"):
+        embed.set_image(url=photos[0]["url"])
+    else:
+        videos = media.get("videos") or []
+        if videos:
+            thumb = videos[0].get("thumbnail") or videos[0].get("poster")
+            if thumb:
+                embed.set_image(url=thumb)
+    ts = st.get("created_timestamp")
+    if ts:
+        try:
+            embed.timestamp = datetime.fromtimestamp(ts, tz=timezone.utc)
+        except Exception:
+            pass
+    return embed
+
+
+def _reembed_x(url):
+    """X/Twitter qua API FxEmbed v2."""
+    m = re.search(r"/status/(\d+)", url)
+    host = urllib.parse.urlparse(url).netloc.lower()
+    fallback = _rewrite_host(
+        url, "fixupx.com" if "x.com" in host else "fxtwitter.com"
+    )
+    if not m:
+        return None, fallback
+    data = _http_get_json(f"https://api.fxtwitter.com/2/status/{m.group(1)}")
+    st = (data or {}).get("status") or {}
+    embed = _embed_from_fx(st, url, 0x1D9BF0, "X")
+    return (embed, None) if embed else (None, fallback)
+
+
+def _reembed_bsky(url):
+    """Bluesky qua API FxBluesky v2."""
+    m = re.search(r"/profile/([^/]+)/post/([^/?#]+)", url)
+    fallback = _rewrite_host(url, "fxbsky.app")
+    if not m:
+        return None, fallback
+    data = _http_get_json(
+        f"https://api.fxbsky.app/2/status/{m.group(1)}/{m.group(2)}"
+    )
+    st = (data or {}).get("status") or {}
+    embed = _embed_from_fx(st, url, 0x1185FE, "Bluesky")
+    return (embed, None) if embed else (None, fallback)
+
+
+def _reembed_instagram(url):
+    """Instagram qua trang InstagramFix (đọc thẻ OG: tác giả + ảnh)."""
+    parts = urllib.parse.urlparse(url)
+    fix_url = "https://instagramfix.com" + parts.path
+    og = _og_tags(_http_get_text(fix_url))
+    img = og.get("og:image") or og.get("twitter:image")
+    title = og.get("og:title") or og.get("twitter:title") or "Instagram"
+    if img:
+        img = urllib.parse.urljoin("https://instagramfix.com", img)
+        embed = _embed_base(title, url, 0xE1306C, "Instagram")
+        embed.set_image(url=img)
+        return embed, None
+    return None, fix_url
+
+
+def _reembed_tiktok(url):
+    """TikTok: đổi domain sang TikTxk để Discord tự hiện video."""
+    parts = urllib.parse.urlparse(url)
+    if parts.netloc == "vm.tiktok.com":
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _REEMBED_UA})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                url = resp.geturl()
+            parts = urllib.parse.urlparse(url)
+        except Exception:
+            return None, None
+    if "tiktok.com" not in parts.netloc:
+        return None, None
+    return None, _rewrite_host(url, "tiktxk.com")
+
+
+def _reembed_reddit(url):
+    """Reddit: đổi domain sang vxreddit để Discord tự hiện bài."""
+    return None, _rewrite_host(url, "vxreddit.com")
+
+
+def _reembed_pixiv(url):
+    """Pixiv qua trang Phixiv (đọc thẻ OG: tiêu đề + ảnh)."""
+    m = re.search(r"/artworks/(\d+)", url)
+    if not m:
+        return None, None
+    fix_url = f"https://phixiv.net/artworks/{m.group(1)}"
+    og = _og_tags(_http_get_text(fix_url))
+    title = og.get("og:title")
+    img = og.get("og:image")
+    if title and img:
+        embed = _embed_base(title, url, 0x0096FA, "Pixiv")
+        embed.set_image(url=img)
+        return embed, None
+    return None, fix_url
+
+
+def _reembed_wikipedia(url):
+    """Wikipedia qua API REST summary (ổn định, không cần key)."""
+    parts = urllib.parse.urlparse(url)
+    m = re.match(r"([a-z]{2,3})\.wikipedia\.org$", parts.netloc.lower())
+    title = None
+    if parts.path.startswith("/wiki/"):
+        title = urllib.parse.unquote(parts.path[len("/wiki/"):])
+    if not m or not title:
+        return _reembed_generic(url, "Wikipedia", 0x636363)
+    data = _http_get_json(
+        f"https://{m.group(1)}.wikipedia.org/api/rest_v1/page/summary/"
+        f"{urllib.parse.quote(title)}"
+    )
+    if not data or not data.get("extract"):
+        return _reembed_generic(url, "Wikipedia", 0x636363)
+    embed = _embed_base(data.get("title") or title, url, 0x636363, "Wikipedia")
+    embed.description = _short(data.get("extract"), 2000)
+    thumb = (data.get("thumbnail") or {}).get("source")
+    if thumb:
+        embed.set_thumbnail(url=thumb)
+    return embed, None
+
+
+def _reembed_facebook(url):
+    """Facebook qua embeds.now (chỉ bài công khai, kém ổn định nhất)."""
+    return None, "https://embeds.now/" + url
+
+
+def _reembed_generic(url, platform=None, color=0x5865F2):
+    """Web bất kỳ: đọc thẻ OpenGraph của trang rồi dựng embed."""
+    og = _og_tags(_http_get_text(url))
+    title = og.get("og:title") or og.get("twitter:title")
+    if not title:
+        return None, None
+    desc = og.get("og:description") or og.get("twitter:description")
+    img = (
+        og.get("og:image:secure_url")
+        or og.get("og:image")
+        or og.get("twitter:image")
+    )
+    site = og.get("og:site_name") or platform or urllib.parse.urlparse(url).netloc
+    embed = _embed_base(title, url, color, f"Nguồn: {site}")
+    if desc:
+        embed.description = _short(desc, 2000)
+    if img:
+        embed.set_image(url=urllib.parse.urljoin(url, img))
+    return embed, None
+
+
+def _reembed_for_url(url):
+    """Trả về (embed, link_dự_phòng) hoặc (None, None) khi bỏ qua link này."""
+    parts = urllib.parse.urlparse(url)
+    host = parts.netloc.lower()
+    if host in _REEMBED_FIXER_HOSTS:
+        return None, None  # link đã là bản fix rồi, Discord tự hiện
+    if host in _REEMBED_SKIP_HOSTS:
+        return None, None  # YouTube/Discord tự hiện embed đẹp rồi
+    if parts.path.lower().endswith(_REEMBED_MEDIA_SUFFIX):
+        return None, None  # ảnh/video trực tiếp, Discord tự hiện
+    if "twitter.com" in host or host == "x.com" or host.endswith(".x.com"):
+        return _reembed_x(url)
+    if "bsky.app" in host:
+        return _reembed_bsky(url)
+    if "instagram.com" in host:
+        return _reembed_instagram(url)
+    if "tiktok.com" in host:
+        return _reembed_tiktok(url)
+    if "reddit.com" in host:
+        return _reembed_reddit(url)
+    if "threads.net" in host or "threads.com" in host:
+        return _reembed_generic(url, "Threads", 0x2D2D2D)
+    if "pixiv.net" in host:
+        return _reembed_pixiv(url)
+    if host.endswith(".wikipedia.org") or host == "wikipedia.org":
+        return _reembed_wikipedia(url)
+    if "facebook.com" in host or host in ("fb.com", "fb.watch"):
+        return _reembed_facebook(url)
+    return _reembed_generic(url)
+
+
+async def _maybe_reembed(message):
+    text = message.content or ""
+    if not text or text.startswith("/") or text.startswith("!"):
+        return
+    url = _first_url(text)
+    if not url:
+        return
+    now = time.monotonic()
+    if now - _REEMBED_SEEN.get(url, 0) < _REEMBED_COOLDOWN:
+        return
+    _REEMBED_SEEN[url] = now
+    try:
+        embed, fallback = await asyncio.to_thread(_reembed_for_url, url)
+    except Exception as e:
+        print("reembed failed:", e)
+        return
+    try:
+        if embed is not None:
+            await message.reply(embed=embed, mention_author=False)
+        elif fallback:
+            await message.reply(fallback, mention_author=False)
+    except discord.DiscordException as e:
+        print("reembed reply failed:", e)
+
+
 @client.event
 async def on_message(message):
     if message.author.bot:
         return
     if message.channel.id == CHAT_CHUNG_CHANNEL_ID:
         await _maybe_greet(message)
+        await _maybe_reembed(message)
         return
     if message.channel.id != WORDCHAIN_CHANNEL_ID:
         return
