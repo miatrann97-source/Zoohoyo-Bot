@@ -1164,8 +1164,40 @@ def _parse_vtt(vtt):
     return "\n".join(t for _, t in merged), merged
 
 
+def _pick_subtitle_url(tracks, auto):
+    """Chọn link phụ đề VTT tốt nhất: phụ đề thật trước (đúng ngôn ngữ bài hát),
+    rồi phụ đề tự động đúng ngôn ngữ gốc (url không có tlang=),
+    cuối cùng mới tới bản dịch."""
+    def vtt_url(formats):
+        for f in formats or []:
+            if f.get("ext") == "vtt" and f.get("url"):
+                return f["url"]
+        for f in formats or []:
+            if f.get("url"):
+                return f["url"]
+        return None
+
+    for _lang, formats in (tracks or {}).items():
+        u = vtt_url(formats)
+        if u:
+            return u
+    for lang in ["vi", "en", "ko", "ja", "zh", "es", "fr", "de", "th", "id", "ms"]:
+        for f in (auto or {}).get(lang) or []:
+            if f.get("ext") == "vtt" and f.get("url") and "tlang=" not in f["url"]:
+                return f["url"]
+    for _lang, formats in (auto or {}).items():
+        for f in formats or []:
+            if f.get("ext") == "vtt" and f.get("url") and "tlang=" not in f["url"]:
+                return f["url"]
+    for lang in ["vi", "en"]:
+        u = vtt_url((auto or {}).get(lang) or [])
+        if u:
+            return u
+    return None
+
+
 def _subtitles_from_youtube(webpage_url):
-    """Lấy phụ đề tiếng Việt của video YouTube (phụ đề thật trước, tự động sau)
+    """Lấy phụ đề của video YouTube (phụ đề thật trước, tự động sau)
     để làm lời karaoke khi kho lời LRCLIB không có bài đó.
     Trả về (lời thường, [(giây, dòng)]) hoặc (None, [])."""
     if not webpage_url or ("youtube.com" not in webpage_url and "youtu.be" not in webpage_url):
@@ -1178,14 +1210,7 @@ def _subtitles_from_youtube(webpage_url):
         return None, []
     tracks = (info or {}).get("subtitles") or {}
     auto = (info or {}).get("automatic_captions") or {}
-    vi = tracks.get("vi") or auto.get("vi") or []
-    vtt_url = None
-    for f in vi:
-        if f.get("ext") == "vtt" and f.get("url"):
-            vtt_url = f["url"]
-            break
-    if not vtt_url and vi:
-        vtt_url = vi[0].get("url")
+    vtt_url = _pick_subtitle_url(tracks, auto)
     if not vtt_url:
         return None, []
     try:
@@ -1532,6 +1557,7 @@ async def _ensure_connected(guild):
 
 
 play_locks = {}
+voice_force_reconnect = {}  # guild_id -> True khi phiên mã hoá DAVE kẹt, cần ngắt voice rồi nối lại
 
 async def _play_next(guild_id, voice_client):
     lock = play_locks.setdefault(guild_id, asyncio.Lock())
@@ -1544,6 +1570,20 @@ async def _play_next(guild_id, voice_client):
 async def _play_next_locked(guild_id, voice_client):
     guild = client.get_guild(guild_id)
     if guild is not None:
+        if voice_force_reconnect.pop(guild_id, False):
+            old = guild.voice_client
+            old_ch = old.channel if old is not None else None
+            if old is not None:
+                try:
+                    await old.disconnect(force=True)
+                    print("ngắt voice do DAVE kẹt, nối lại...")
+                except Exception:
+                    pass
+            if old_ch is not None:
+                try:
+                    await old_ch.connect()
+                except Exception as e:
+                    print("reconnect voice failed:", e)
         vc = await _ensure_connected(guild)
         if vc is None:
             return
@@ -1575,6 +1615,10 @@ async def _play_next_locked(guild_id, voice_client):
         def after(err):
             if err:
                 print("music error:", err)
+                # Phiên mã hoá DAVE kẹt (Failed to encrypt: NotReady): bài sau cũng
+                # sẽ im tiếng nếu giữ nguyên kết nối — đánh dấu để nối lại voice mới.
+                if "NotReady" in str(err):
+                    voice_force_reconnect[guild_id] = True
             coro = _play_next(guild_id, voice_client)
             asyncio.run_coroutine_threadsafe(coro, client.loop)
         try:
