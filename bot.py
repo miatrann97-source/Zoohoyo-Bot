@@ -668,6 +668,10 @@ BLOCKED_WORDS = {
 BLOCKED_PHRASES = {
     "a men", "a tòng", "ad hoc", "gái điếm", "gái gọi", "mại dâm",
     "tinh trùng", "tinh dịch", "thủ dâm", "khiêu dâm", "loạn luân",
+    # Cụm lạ đã thấy bot nối trong game tối 2026-11-06 (ghép âm gượng,
+    # không phải cụm từ thông thường dù từng từ đều có trong từ điển):
+    "hệ si", "ngọc phả", "sự thể", "mạng sườn", "bạc nhạc", "tử tuất",
+    "đầu ối", "dào ôi", "ra ngôi",
 }
 
 
