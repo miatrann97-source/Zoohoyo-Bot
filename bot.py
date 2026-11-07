@@ -1016,13 +1016,53 @@ def _fmt_duration(sec):
     return f"{sec // 60}:{sec % 60:02d}"
 
 
-def _clean_song_title(title):
-    """Rút gọn tên bài để tìm lời: bỏ (feat...), [..], phần sau ' | ' và ' - '."""
+def _split_song_artists(title, artist=None):
+    """Tách title video thành (tên bài, [các phần nghệ sĩ]).
+    Xử lý cả 2 dạng: 'Bài - Nghệ sĩ 1, Nghệ sĩ 2 | Show' và
+    'Nghệ sĩ - 'Bài' (ft...) / Show' (tên bài trong ngoặc kép, hoặc phần
+    trước ' - ' trùng tên uploader). Bỏ phần show sau ' | ' hoặc ' / ',
+    bỏ (...) và [...]."""
     t = (title or "").strip()
+    t = t.split("|")[0]
+    t = re.split(r"\s+/\s+", t)[0]
     t = re.sub(r"\([^)]*\)", "", t)
     t = re.sub(r"\[[^\]]*\]", "", t)
-    t = t.split("|")[0].split(" - ")[0]
-    return t.strip(" -\u2013\u2014| \t")
+    parts = [p.strip(" -\u2013\u2014| \t") for p in t.split(" - ")]
+    parts = [p for p in parts if p]
+    if not parts:
+        return "", []
+    if len(parts) == 1:
+        return parts[0].strip("\"'“”‘’").strip(), []
+    song_idx = 0
+    quoted = [i for i, p in enumerate(parts) if p[:1] in ("'", '"', "‘", "“")]
+    if quoted:
+        song_idx = quoted[0]
+    elif artist:
+        an = set(_norm_words(artist))
+        for i, p in enumerate(parts):
+            pn = set(_norm_words(p))
+            if pn and an and (pn <= an or an <= pn):
+                song_idx = (i + 1) % len(parts)
+                break
+        else:
+            for i, p in enumerate(parts):
+                if "," in p or "&" in p:
+                    song_idx = (i + 1) % len(parts)
+                    break
+    else:
+        for i, p in enumerate(parts):
+            if "," in p or "&" in p:
+                song_idx = (i + 1) % len(parts)
+                break
+    song = parts[song_idx].strip("\"'“”‘’").strip()
+    artists = [parts[i] for i in range(len(parts)) if i != song_idx]
+    return song, artists
+
+
+def _clean_song_title(title, artist=None):
+    """Rút gọn tên bài để tìm lời (dùng _split_song_artists)."""
+    song, _artists = _split_song_artists(title, artist)
+    return song
 
 
 def _norm_words(s):
@@ -1048,12 +1088,12 @@ def _version_num(s):
 
 
 def _performer_tokens_from_title(title):
-    """Từ tên nghệ sĩ trong title: phần sau ' - ' và trong (feat. ...)/(cùng với ...)."""
+    """Từ tên nghệ sĩ trong title: các phần nghệ sĩ (không phải tên bài)
+    và trong (feat. ...)/(cùng với ...)."""
     toks = set()
     t = (title or "")
-    parts = t.split("|")[0].split(" - ")
-    if len(parts) > 1:
-        raw = " ".join(parts[1:])
+    _song, artists = _split_song_artists(t)
+    for raw in artists:
         for chunk in re.split(r"[,/&+]|\bfeat\.?\b|\bft\.?\b|\bcùng với\b|\bx\b", raw, flags=re.I):
             for w in _norm_words(chunk):
                 if len(w) > 2 and w not in _LYRIC_STOPWORDS:
@@ -1081,11 +1121,10 @@ def _performer_tokens_from_candidate(track_name, artist_name):
 
 
 def _artist_tokens(title, artist):
-    """Lấy các từ tên nghệ sĩ từ title ('Bài - Nghệ sĩ 1, Nghệ sĩ 2') + uploader."""
+    """Lấy các từ tên nghệ sĩ từ title (các phần nghệ sĩ, không phải tên bài) + uploader."""
     toks = set()
-    parts = (title or "").split("|")[0].split(" - ")
-    if len(parts) > 1:
-        raw = " ".join(parts[1:])
+    _song, artists = _split_song_artists(title, artist)
+    for raw in artists:
         for chunk in re.split(r"[,/&+]|\bfeat\.?\b|\bft\.?\b|\bx\b", raw, flags=re.I):
             for w in _norm_words(chunk):
                 if len(w) > 2 and w not in _LYRIC_STOPWORDS:
@@ -1235,11 +1274,11 @@ def _lrclib_search(track_name, artist_name=None):
 
 
 def _artist_hints(title, artist):
-    """Các tên nghệ sĩ/show để thử tìm kèm: uploader trước, rồi phần sau ' | ' trong title."""
+    """Các tên nghệ sĩ/show để thử tìm kèm: uploader trước, rồi phần show sau ' | ' hoặc ' / ' trong title."""
     hints = []
     if artist and artist.strip():
         hints.append(artist.strip())
-    parts = (title or "").split("|")
+    parts = re.split(r"\s*[|/]\s*", (title or ""))
     if len(parts) > 1:
         show = parts[1].split("-")[0]
         show = re.sub(r"\([^)]*\)", "", show)
@@ -1293,7 +1332,7 @@ def _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver):
 def _lyrics_from_lrclib(title, artist, duration):
     """Tìm lời bài hát trên LRCLIB (miễn phí, không cần key).
     Trả về (lời thường, [(giây, dòng)] lời đồng bộ) hoặc (None, [])."""
-    name = _clean_song_title(title)
+    name = _clean_song_title(title, artist)
     if not name:
         return None, []
     try:
