@@ -32,7 +32,7 @@ import urllib.parse
 import urllib.request
 
 import yt_dlp
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time as dt_time
 
 import discord
 from discord import app_commands
@@ -794,6 +794,97 @@ async def update_board_loop():
     await update_board_once()
 
 
+# --- Quote + prompt mỗi sáng (tự động, không cần token) ---
+# Trước đây Bom phải đăng tay mỗi sáng bằng token An gửi. Từ 2026-11-06 bot
+# tự đăng luôn: mỗi ngày lúc 10:48 giờ Vegas (18:48 UTC mùa đông) đăng 1
+# quote tiếng Việt vui nhộn + 1 prompt tương tác lên #chat-chung.
+# Quote/prompt xoay vòng theo ngày nên không lặp lại trong nhiều ngày.
+CHAT_CHUNG_CHANNEL_ID = 1411239353400688671  # #🌐-chat-chung
+DAILY_POST_TIME_UTC = dt_time(hour=18, minute=48, tzinfo=timezone.utc)
+DAILY_STATE_FILE = "daily.json"
+DAILY_START_DATE = datetime(2026, 11, 7, tzinfo=timezone.utc).date()
+
+DAILY_QUOTES = [
+    "Roll 10 lần không ra 5 sao thì đừng buồn, game nó đang test độ kiên nhẫn của mình thôi — kiên nhẫn xong là tới lượt mình nổ hũ.",
+    "Sáng nay ai chưa ăn sáng thì ăn đi rồi hẵng gacha, bụng no thì tay mới hên, tay hên thì roll mới vàng.",
+    "Thua rank không đáng sợ, đáng sợ là thua xong còn bị đồng đội hỏi 'sao bạn chơi vậy'.",
+    "Hôm nay mà lag thì cứ bình tĩnh, lag là game đang cho mình thêm thời gian suy nghĩ chiến thuật đó.",
+    "Đừng để một trận thua làm hỏng cả ngày, game còn đó, ngày mai cày lại vẫn kịp — trừ khi mai cũng thua thì tính sau.",
+    "Ai bảo chơi game là phí thời gian? Chơi game là đang rèn phản xạ, rèn teamwork, với rèn cả độ lì nữa đó.",
+    "Sáng nay dậy sớm roll thử đi, biết đâu thần may mắn cũng dậy sớm giống mình.",
+    "Cày game mà quên uống nước là dở rồi, nhân vật trong game còn có thanh máu, mình ngoài đời cũng cần nạp nước đó.",
+    "Hôm nay ai đang chờ banner thì nhớ: pity không bỏ rơi ai, chỉ là nó tới hơi chậm thôi.",
+    "Chơi game giỏi không bằng chơi game vui — mà chơi game vui thì tự nhiên cũng giỏi lên thôi.",
+    "Tối nay mà mơ thấy roll ra 5 sao thì sáng mai dậy roll liền, giấc mơ báo mộng đó.",
+    "Đừng so acc mình với acc người ta, acc người ta nạp nhiều thì đẹp là phải rồi — acc mình cày chay mà vẫn xịn mới là đỉnh.",
+    "Hôm nay trời đẹp, vô game chụp vài tấm ảnh kỷ niệm đi, mai mốt nhìn lại thấy mình từng trẻ.",
+    "Gacha là trò may rủi, nhưng cười nhiều thì may mắn nó cũng nể mặt mình hơn đó.",
+]
+
+# Prompt #5-#7 là 3 prompt An đã duyệt sẵn từ trước (chưa dùng tới), các prompt
+# sau đó là prompt mới cùng kiểu để xoay vòng tiếp.
+DAILY_PROMPTS = [
+    "Nếu server mình là một món ăn thì sẽ là món gì, và vì sao? 🍜",
+    "Kể lần quê nhất của mọi người lúc chơi game đi 😳",
+    "Thà thua 10 trận rank liên tiếp hay mất wifi đúng lúc đánh boss? 🤔",
+    "Nếu được mang một nhân vật game ra đời thật làm bạn cùng phòng thì mọi người chọn ai, vì sao? 🎮",
+    "Bài hát nào mọi người nghe hoài không chán lúc cày game? 🎵",
+    "Kể tên một món ăn mà mọi người hay ăn vụng lúc chơi game khuya đi 🍜",
+    "Nếu mai server mình tổ chức offline thì mọi người muốn đi đâu, chơi gì? 🎉",
+    "Con boss nào làm mọi người ức nhất từ trước tới giờ, và đã trả thù được chưa? 😤",
+    "Mọi người thích chơi game một mình chill hay chơi chung ồn ào hơn, vì sao? 🎧",
+    "Nếu được quay lại ngày đầu chơi game yêu thích nhất thì mọi người sẽ làm gì khác? ⏳",
+]
+
+
+def load_daily_state():
+    try:
+        with open(DAILY_STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def save_daily_state(date_str):
+    try:
+        with open(DAILY_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"date": date_str}, f)
+    except OSError:
+        pass
+
+
+async def post_daily_quote_prompt():
+    """Đăng quote + prompt của ngày hôm nay (mỗi ngày tối đa 1 lần)."""
+    today = datetime.now(timezone.utc).date()
+    state = load_daily_state()
+    if state and state.get("date") == today.isoformat():
+        return  # hôm nay đăng rồi, tránh đăng trùng khi bot khởi động lại
+    try:
+        channel = client.get_channel(CHAT_CHUNG_CHANNEL_ID) or await client.fetch_channel(
+            CHAT_CHUNG_CHANNEL_ID
+        )
+    except Exception as e:
+        print("daily: không tìm được kênh chat-chung:", e)
+        return
+    day_index = (today - DAILY_START_DATE).days
+    quote = DAILY_QUOTES[day_index % len(DAILY_QUOTES)]
+    prompt = DAILY_PROMPTS[day_index % len(DAILY_PROMPTS)]
+    try:
+        await channel.send(f"☀️ Quote hôm nay nè cả nhà:\n> {quote}")
+        await channel.send(
+            f"💬 Câu hỏi hôm nay: {prompt}\nMọi người vô trả lời cho vui nè!"
+        )
+        save_daily_state(today.isoformat())
+        print(f"daily: đã đăng quote + prompt ngày {today.isoformat()}")
+    except Exception as e:
+        print("daily: đăng quote/prompt thất bại:", e)
+
+
+@tasks.loop(time=DAILY_POST_TIME_UTC)
+async def daily_quote_prompt_loop():
+    await post_daily_quote_prompt()
+
+
 @tasks.loop(minutes=2)
 async def voice_watchdog():
     """Bot rớt khỏi voice thì tự vô lại kênh Nhạc hot trend."""
@@ -857,6 +948,9 @@ async def on_ready():
     await update_lore_embeds_once()
     if not update_board_loop.is_running():
         update_board_loop.start()
+    if not daily_quote_prompt_loop.is_running():
+        daily_quote_prompt_loop.start()
+        print("daily quote/prompt loop started, next post 18:48 UTC")
     if not trend_loop.is_running():
         trend_loop.start()
     if not voice_watchdog.is_running():
@@ -900,9 +994,81 @@ async def on_ready():
                   [c.name for g in client.guilds for c in g.voice_channels])
 
 
+# --- Tự chào lại khi có bạn chào trong #chat-chung ---
+# An nhờ 2026-11-06: mấy giờ An bận không rep được thì bot chào lại giúp.
+# Chỉ chào trong #chat-chung (kênh tám chuyện chính), không chào ở kênh
+# nối từ hay kênh code để khỏi làm loạn. Mỗi người 10 phút bot chào 1 lần.
+GREETING_PHRASES = [
+    "chào buổi sáng", "chào buổi trưa", "chào buổi chiều", "chào buổi tối",
+    "chào buổi đêm", "xin chào", "chào cả nhà", "chào mọi người",
+    "good morning", "good afternoon", "good evening",
+    "hello", "hi", "chào", "hế lô", "helo", "alo",
+]
+
+GREETING_REPLIES = {
+    "morning": [
+        "Chào buổi sáng {mention} ☀️ Chúc một ngày roll gì cũng vàng, chơi gì cũng thắng nha!",
+        "Buổi sáng vui vẻ nha {mention} 🌤️ Vô chơi chung với cả nhà không?",
+        "Chào buổi sáng {mention} 🐶 Uống cà phê chưa? Chưa thì uống rồi hẵng gacha cho hên nè!",
+    ],
+    "evening": [
+        "Chào buổi tối {mention} 🌙 Tối nay rảnh thì vô chơi game chung với cả nhà nha!",
+        "Buổi tối vui vẻ nha {mention} ✨ An bận thì để tuất tiếp mọi người cho, cứ chơi thoải mái đi!",
+        "Chào buổi tối {mention} 🐶 Ăn tối chưa? Ăn rồi thì vô cày chung nè!",
+    ],
+    "generic": [
+        "Chào {mention} nè 🐶 Vô chơi chung cho vui nha!",
+        "Hello {mention} 👋 Cả nhà đang tám chuyện đây, vô ngồi chung đi!",
+        "Chào {mention} nha ✨ Cần gì thì gọi tuất ơi là có mặt liền!",
+        "Hế lô {mention} 🐾 Vô server là nhà rồi đó, cứ tự nhiên nha!",
+    ],
+}
+
+_greet_last = {}  # user_id -> thời điểm bot chào lần cuối (tránh spam)
+
+
+def _greet_kind(text):
+    """Tin nhắn có phải lời chào không -> 'morning' / 'evening' / 'generic' / None."""
+    if text.startswith("hi vọng") or text.startswith("hi vong"):
+        return None  # "hi vọng" không phải lời chào, đừng chào lại
+    for phrase in sorted(GREETING_PHRASES, key=len, reverse=True):
+        if text == phrase or text.startswith(phrase + " "):
+            if "buổi sáng" in phrase or "morning" in phrase:
+                return "morning"
+            if "buổi tối" in phrase or "buổi đêm" in phrase or "evening" in phrase:
+                return "evening"
+            return "generic"
+    return None
+
+
+async def _maybe_greet(message):
+    text = _norm(message.content)
+    if not text or text.startswith("/") or text.startswith("!"):
+        return
+    kind = _greet_kind(text)
+    if kind is None:
+        return
+    now = time.monotonic()
+    if now - _greet_last.get(message.author.id, 0) < 600:
+        return  # mỗi người 10 phút chào 1 lần thôi
+    _greet_last[message.author.id] = now
+    reply = random.choice(GREETING_REPLIES[kind]).format(
+        mention=message.author.mention
+    )
+    try:
+        await message.channel.send(reply)
+    except discord.DiscordException as e:
+        print("greet failed:", e)
+
+
 @client.event
 async def on_message(message):
-    if message.author.bot or message.channel.id != WORDCHAIN_CHANNEL_ID:
+    if message.author.bot:
+        return
+    if message.channel.id == CHAT_CHUNG_CHANNEL_ID:
+        await _maybe_greet(message)
+        return
+    if message.channel.id != WORDCHAIN_CHANNEL_ID:
         return
     text = _norm(message.content)
     if not text or text.startswith("/") or text.startswith("!"):
