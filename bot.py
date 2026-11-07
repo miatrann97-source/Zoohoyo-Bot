@@ -742,6 +742,53 @@ async def update_board_once():
         save_state(channel.id, message.id)
 
 
+# --- Lore game: bot tự cập nhật khung lore Genshin khi khởi động ---
+# Khung lore ở #📝-lore-game, tin Genshin 1566973088598335599. Mỗi lần bot
+# khởi động lại (deploy mới), nó sửa lại khung bằng nội dung trong repo:
+# cùng nội dung thì không đổi gì thấy được, có nội dung mới thì khung cập
+# nhật theo. Sửa tin không ping ai. Lỗi thì chỉ in log, không làm bot chết.
+LORE_CHANNEL_ID = 1539675424550817922
+LORE_GENSHIN_MESSAGE_ID = 1566973088598335599
+LORE_GENSHIN_TITLE = "📖 Lore Genshin Impact — Đông Snezhnaya hiện tại"
+LORE_GENSHIN_COLOR = 0xD9B36C
+LORE_GENSHIN_IMAGE = "genshin_snezhnaya.jpg"
+LORE_GENSHIN_DESC = (
+    "❄️ Vùng đất là gì: Snezhnaya là nước băng ở phía bắc Teyvat, mùa đông quanh năm, bão tuyết có khi kéo dài cả tháng. Người dân sống nhờ Kresnik Kristall, một loại tinh thể đặc biệt của Snezhnaya, dùng để thắp sáng và sưởi ấm cho từng khu dân cư.\n"
+    "🚂 Vùng đất mới mở ở bản 7.2 là phía đông Snezhnaya. Đi tàu sẽ tới Novokitezhgrad, thành phố ngầm xây hoàn toàn trong tinh thể, là nơi sản xuất Kresnik Kristall lớn nhất Snezhnaya, trái ngược hẳn với mặt đất tuyết phủ bên trên. Đi tiếp về phía đông qua bão tuyết sẽ tới Wingspan Peak, dãy núi xòe ra như một cánh khổng lồ, và Old Kitezhgrad, thành phố đầu tiên của Snezhnaya, do Belyi Tsar lập nên.\n"
+    "👑 Ai cai quản: Belyi Tsar là vị thần băng đời đầu của Snezhnaya, khác với Tsaritsa hiện tại. Tsaritsa tên là Anastasya, thần băng đương nhiệm, cũng là người lãnh đạo Fatui, lực lượng quân sự và ngoại giao của Snezhnaya.\n"
+    "⚔️ Cốt truyện bản 7.2 — \"Hour of Ruin\" (Giờ Tàn Phá): mọi chuyện bắt đầu từ Ronova, Kẻ Cai Quản Cái Chết. Sau trận chiến ở bản 7.1, sức mạnh của bà ta khiến những chiếc Đinh Trừng Phạt (Nails of Retribution) — vũ khí trừng phạt của trời cắm khắp Teyvat — rung lên dữ dội. Từ những chiếc đinh ấy, những cột sáng bí ẩn mọc lên khắp bảy nước, kéo theo hiện tượng Holy Soil (Đất Thánh) làm đất đai và mỏ tinh thể nhiễm độc, đẩy cả lục địa tới bờ hủy diệt. Trước thảm họa đó, Tsaritsa triệu tập một hội nghị lịch sử ngay tại Snezhnaya, mời đại diện của cả bảy nước, các vị Thần và Neuvillette — thẩm phán tối cao của Fontaine, người mang sức mạnh của rồng nước — cùng bàn cách ngăn chặn. Nhà Lữ Hành cũng có mặt, sát cánh cùng đồng minh khắp Teyvat.\n"
+    "🕵️ Trong lúc đó, hai câu chuyện nhỏ song song: Danica, thị nữ thân cận của Tsaritsa, nhận một nhiệm vụ dọn dẹp bí mật ở Novokitezhgrad, còn Mitya — nhà khoa học lạc quan dám thách thức cả Thiên Lý (Heavenly Principles, những kẻ cai trị tối cao của Teyvat) — đi điều tra lớp đất lạ gần ốc đảo Teplo. Hai con đường của họ bất ngờ giao nhau."
+)
+
+
+async def update_lore_embeds_once():
+    """Sửa khung lore Genshin bằng nội dung mới nhất trong repo."""
+    try:
+        channel = client.get_channel(LORE_CHANNEL_ID) or await client.fetch_channel(
+            LORE_CHANNEL_ID
+        )
+        message = await channel.fetch_message(LORE_GENSHIN_MESSAGE_ID)
+    except Exception as e:
+        print("Không lấy được khung lore Genshin:", e)
+        return
+    try:
+        img = discord.File(LORE_GENSHIN_IMAGE)
+    except FileNotFoundError:
+        print("Không có file ảnh lore Genshin, bỏ qua cập nhật khung lore")
+        return
+    embed = discord.Embed(
+        title=LORE_GENSHIN_TITLE,
+        description=LORE_GENSHIN_DESC,
+        color=LORE_GENSHIN_COLOR,
+    )
+    embed.set_image(url=f"attachment://{LORE_GENSHIN_IMAGE}")
+    try:
+        await message.edit(embed=embed, attachments=[img])
+        print("Đã cập nhật khung lore Genshin")
+    except Exception as e:
+        print("Không sửa được khung lore Genshin:", e)
+
+
 @tasks.loop(minutes=UPDATE_INTERVAL_MINUTES)
 async def update_board_loop():
     await update_board_once()
@@ -807,6 +854,7 @@ async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
     await tree.sync()
     await update_board_once()
+    await update_lore_embeds_once()
     if not update_board_loop.is_running():
         update_board_loop.start()
     if not trend_loop.is_running():
