@@ -907,6 +907,24 @@ FFMPEG_OPTS_URL = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
 }
 FFMPEG_OPTS_FILE = {}
+# Karaoke chạy nhanh hơn nhạc vì play() trả về ngay nhưng tiếng thật tới tai
+# An chậm hơn (ffmpeg khởi động + mạng Discord đệm). Neo đồng hồ karaoke
+# vào lúc frame nhạc đầu tiên được đọc + bù thêm độ trễ đường truyền.
+KARAOKE_DELAY = 1.0
+
+
+class _TimedOpusAudio(discord.FFmpegOpusAudio):
+    """FFmpegOpusAudio ghi lại lúc đọc được frame nhạc đầu tiên."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.first_read_at = None
+
+    def read(self):
+        data = super().read()
+        if data and self.first_read_at is None:
+            self.first_read_at = time.monotonic()
+        return data
 music_queues = {}  # guild_id -> list of (title, audio_url)
 now_playing = {}  # guild_id -> song đang phát (để nút 📜 lấy lời)
 karaoke_state = {}  # guild_id -> {"song", "synced", "started_at", "paused_at", "msg", "line_idx"}
@@ -1651,9 +1669,9 @@ async def _play_next_locked(guild_id, voice_client):
         local = await asyncio.to_thread(_download_song, song)
         try:
             if local:
-                source = discord.FFmpegOpusAudio(local, **FFMPEG_OPTS_FILE)
+                source = _TimedOpusAudio(local, **FFMPEG_OPTS_FILE)
             else:
-                source = discord.FFmpegOpusAudio(song["url"], **FFMPEG_OPTS_URL)
+                source = _TimedOpusAudio(song["url"], **FFMPEG_OPTS_URL)
         except Exception as e:
             print("music error: không tạo được audio:", repr(e))
             continue
@@ -1681,7 +1699,10 @@ async def _play_next_locked(guild_id, voice_client):
         # Bài nào kho lời không có thì lấy phụ đề video làm lời karaoke.
         await _fetch_subtitles(song)
         now_playing[guild_id] = song
-        await _karaoke_start(guild_id, song, play_started)
+        # Neo karaoke vào lúc tiếng thật bắt đầu chảy (frame đầu), không phải
+        # lúc play() trả về — nếu chưa đọc được frame nào thì dùng giờ play().
+        karaoke_started_at = (getattr(source, "first_read_at", None) or play_started) + KARAOKE_DELAY
+        await _karaoke_start(guild_id, song, karaoke_started_at)
         break
     if guild_id in trend_mode:
         guild = client.get_guild(guild_id)
