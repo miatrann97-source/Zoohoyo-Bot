@@ -1105,12 +1105,12 @@ def _version_num(s):
     return next((g for g in m.groups() if g), None)
 
 
-def _performer_tokens_from_title(title):
+def _performer_tokens_from_title(title, artist=None):
     """Từ tên nghệ sĩ trong title: các phần nghệ sĩ (không phải tên bài)
     và trong (feat. ...)/(cùng với ...)."""
     toks = set()
     t = (title or "")
-    _song, artists = _split_song_artists(t)
+    _song, artists = _split_song_artists(t, artist)
     for raw in artists:
         for chunk in re.split(r"[,/&+]|\bfeat\.?\b|\bft\.?\b|\bcùng với\b|\bx\b", raw, flags=re.I):
             for w in _norm_words(chunk):
@@ -1306,12 +1306,13 @@ def _artist_hints(title, artist):
     return hints
 
 
-def _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver):
+def _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver, name=""):
     """Chấm điểm + lọc các kết quả LRCLIB, trả về (lời, synced_raw, điểm) tốt nhất."""
     artist_low = (artist or "").lower()
     best = None
     best_synced_raw = ""
     best_score = -1
+    best_track = ""
     for r in results:
         # CHẶN LỜI SAI: khác phiên bản (Version 2 vs bản gốc) hoặc khác hẳn nghệ sĩ
         # thì bỏ qua kết quả này — thà không có lời còn hơn hiện lời sai.
@@ -1346,6 +1347,14 @@ def _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver):
             best_score = score
             best = lyrics
             best_synced_raw = synced_raw
+            best_track = r.get("trackName") or ""
+    # Không có chút thông tin nghệ sĩ nào (tên bài trơ trọi, không rõ ca sĩ):
+    # chỉ nhận khi tên bài khớp y hệt + điểm cao, còn không thì trả về không
+    # có lời — thà không có lời còn hơn hiện lời sai (vd SECRET trơ trọi rất
+    # dễ lôi nhầm "Secret Secret" của Perfume/Stray Kids).
+    if best is not None and not title_perfs and not want_toks:
+        if best_score < 4 or _norm_words(best_track) != _norm_words(name):
+            return None, "", best_score
     return best, best_synced_raw, best_score
 
 
@@ -1361,9 +1370,9 @@ def _lyrics_from_lrclib(title, artist, duration):
         print("lyrics search failed:", e)
         return None, []
     want_toks = _artist_tokens(title, artist)
-    title_perfs = _performer_tokens_from_title(title)
+    title_perfs = _performer_tokens_from_title(title, artist)
     title_ver = _version_num(title)
-    best, best_synced_raw, best_score = _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver)
+    best, best_synced_raw, best_score = _pick_lyrics(results, artist, duration, want_toks, title_perfs, title_ver, name)
     # Nếu chưa khớp chắc chắn, thử tìm kèm tên nghệ sĩ (hữu ích với tên bài
     # chung chung như SECRET — tìm theo tên bài không thì toàn ra bài nước ngoài).
     if best is None or best_score < 3:
@@ -1373,7 +1382,7 @@ def _lyrics_from_lrclib(title, artist, duration):
             except Exception as e:
                 print("lyrics artist search failed:", e)
                 continue
-            b2, s2, sc2 = _pick_lyrics(results2, artist, duration, want_toks, title_perfs, title_ver)
+            b2, s2, sc2 = _pick_lyrics(results2, artist, duration, want_toks, title_perfs, title_ver, name)
             if b2 is not None and sc2 > best_score:
                 best, best_synced_raw, best_score = b2, s2, sc2
             if best_score >= 6:
