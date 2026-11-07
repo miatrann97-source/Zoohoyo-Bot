@@ -656,15 +656,55 @@ WORD_BANK = {
 }
 
 
-# --- Từ điển thật: file tu_dien.txt (22.673 cụm 2 từ tiếng Việt, nguồn bi-grams) + WORD_BANK ---
+# --- Từ điển thật: file tu_dien.txt (22.673 cụm 2 từ, nguồn bi-grams) + WORD_BANK ---
+# Chỉ giữ cụm có nghĩa, có trong từ điển tiếng Việt: cả 2 từ phải có trong
+# tu_vung.txt (6.631 từ đơn, nguồn hunspell-vi / dictionary-vi, GPL-2.0).
+# Ngoài ra chặn hẳn từ tục / từ nhạy cảm dù có trong từ điển.
+# WORD_BANK tự chọn thì giữ nguyên, không qua bộ lọc.
+BLOCKED_WORDS = {
+    "điếm", "đĩ", "phò", "cave", "hiếp", "dâm", "đụ", "chịch", "nứng",
+    "cứt", "đái", "dái", "buồi", "cặc", "lồn", "địt", "đéo", "ỉa",
+}
+BLOCKED_PHRASES = {
+    "a men", "a tòng", "ad hoc", "gái điếm", "gái gọi", "mại dâm",
+    "tinh trùng", "tinh dịch", "thủ dâm", "khiêu dâm", "loạn luân",
+}
+
+
+def load_vocabulary():
+    words = set()
+    try:
+        with open("tu_vung.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip().lower()
+                if line and not line.startswith("#"):
+                    words.add(line)
+    except OSError:
+        pass
+    return words
+
+
+VOCABULARY = load_vocabulary()
+
+
 def load_dictionary():
     phrases = set()
     try:
         with open("tu_dien.txt", "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip().lower()
-                if line:
-                    phrases.add(line)
+                if not line:
+                    continue
+                if line in BLOCKED_PHRASES:
+                    continue
+                w = line.split()
+                if len(w) != 2:
+                    continue
+                if any(x in BLOCKED_WORDS for x in w):
+                    continue
+                if VOCABULARY and not all(x in VOCABULARY for x in w):
+                    continue
+                phrases.add(line)
     except OSError:
         pass
     for vals in WORD_BANK.values():
@@ -1422,8 +1462,11 @@ async def on_message(message):
     used.add(text)
     new_last = words[-1]
     save_wordchain(new_last, used, text)
-    # Bot CHƠI CHUNG: chỉ nối bằng cụm có thật trong từ điển, không tự bịa
-    options = [q for q in DICTIONARY.get(new_last, []) if q not in used]
+    # Bot CHƠI CHUNG: chỉ nối bằng cụm có thật trong từ điển, không tự bịa.
+    # Ưu tiên WORD_BANK tự chọn (từ quen thuộc, lịch sự) trước, hết mới lấy từ điển.
+    options = [q for q in WORD_BANK.get(new_last, []) if q not in used]
+    if not options:
+        options = [q for q in DICTIONARY.get(new_last, []) if q not in used]
     if not options:
         await message.channel.send(
             f"Đúng rồi {message.author.mention}! ✅ Tới **{new_last}** là Bom bí thật rồi, ai nối tiếp giúp Bom đi 😅"
