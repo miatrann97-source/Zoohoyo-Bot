@@ -23,6 +23,7 @@
 
 import asyncio
 import html
+import io
 import json
 import os
 import random
@@ -1035,6 +1036,10 @@ async def karaoke_loop():
 async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
     await tree.sync()
+    try:
+        await _pet_init()
+    except Exception as e:
+        print(f"pet: khởi tạo game nuôi bé thất bại: {e!r}")
     await update_board_once()
     await update_lore_embeds_once()
     if not update_board_loop.is_running():
@@ -2617,6 +2622,385 @@ async def poststatus(interaction: discord.Interaction):
     await interaction.response.send_message(embed=board_to_embed(board))
     message = await interaction.original_response()
     save_state(interaction.channel_id, message.id)
+
+
+# --- Game nuôi bé cá mập ---
+# An nhờ 2026-11-07: game nuôi thú ảo với nhân vật bé cá mập (chibi).
+# Mỗi người nhận nuôi 1 bé, cho ăn / chơi cùng / tắm rửa để bé lên cấp.
+# Bé không bao giờ chết — tệ nhất là đói meo / bẩn / buồn thôi.
+# Dữ liệu lưu ở pets.json + backup lên kênh #pet-data (Discord), vì
+# filesystem trên Railway bị reset mỗi lần deploy.
+PET_GUILD_ID = 1370623115142627408
+PET_DATA_CHANNEL_NAME = "pet-data"
+PETS_FILE = "pets.json"
+PET_COOLDOWN_SECONDS = 1800  # 30 phút cho mỗi lệnh cho ăn / chơi / tắm
+PET_DECAY_PER_HOUR = 5       # mỗi chỉ số tụt 5 điểm mỗi giờ (tính lười)
+PET_XP_PER_LEVEL = 100       # 100 XP = 1 cấp
+PET_ACTION_XP = 10           # mỗi lần chăm bé +10 XP
+PET_ACTION_STAT = 25         # mỗi lần chăm bé +25 điểm chỉ số đó
+
+# --- PET GAME: pure helpers (start) ---
+# Các hàm này không đụng tới Discord nên test được độc lập.
+# (Test cần tự định nghĩa PET_XP_PER_LEVEL = 100 và PET_DECAY_PER_HOUR = 5
+# trong namespace trước khi exec đoạn này.)
+
+PET_MOODS = {
+    "vui_ve": {"ten": "Vui vẻ 😄", "anh": "wave.png"},
+    "doi": {"ten": "Đói meo 🥺", "anh": "hungry.png"},
+    "ban": {"ten": "Bẩn rồi 🛁", "anh": "sit.png"},
+    "buon": {"ten": "Buồn 😢", "anh": "sit.png"},
+    "met": {"ten": "Buồn ngủ / mệt 😴", "anh": "sit.png"},
+    "binh_thuong": {"ten": "Bình thường 🙂", "anh": "figurine.png"},
+}
+
+
+def _pet_level(xp):
+    """Trả về (cấp, XP trong cấp hiện tại). 100 XP = 1 cấp."""
+    return xp // PET_XP_PER_LEVEL + 1, xp % PET_XP_PER_LEVEL
+
+
+def _pet_bar(value, length=10):
+    """Thanh chỉ số dạng text: █████░░░░░ (value 0-100)."""
+    value = max(0, min(100, int(value)))
+    filled = (value * length + 50) // 100
+    filled = max(0, min(length, filled))
+    return "█" * filled + "░" * (length - filled)
+
+
+def _pet_apply_decay(pet, now_ts):
+    """Trừ chỉ số theo thời gian trôi (5 điểm/giờ, tối thiểu 0).
+    Cập nhật updated_at rồi trả về chính dict đó."""
+    elapsed = max(0, now_ts - pet.get("updated_at", now_ts))
+    decay = int(elapsed / 3600 * PET_DECAY_PER_HOUR)
+    if decay > 0:
+        for key in ("hunger", "fun", "clean"):
+            pet[key] = max(0, pet.get(key, 0) - decay)
+    pet["updated_at"] = now_ts
+    return pet
+
+
+def _pet_mood_key(pet):
+    """Tâm trạng theo thứ tự ưu tiên: đói -> bẩn -> buồn -> vui -> mệt -> thường."""
+    if pet.get("hunger", 0) < 30:
+        return "doi"
+    if pet.get("clean", 0) < 30:
+        return "ban"
+    if pet.get("fun", 0) < 30:
+        return "buon"
+    if (pet.get("hunger", 0) >= 70 and pet.get("fun", 0) >= 70
+            and pet.get("clean", 0) >= 70):
+        return "vui_ve"
+    if min(pet.get("hunger", 0), pet.get("fun", 0), pet.get("clean", 0)) < 50:
+        return "met"
+    return "binh_thuong"
+
+
+def _pet_age_days(pet, now_ts):
+    """Tuổi của bé tính bằng ngày kể từ lúc nhận nuôi."""
+    return max(0, int((now_ts - pet.get("born_at", now_ts)) // 86400))
+
+# --- PET GAME: pure helpers (end) ---
+
+
+_PET_BASE = os.path.dirname(os.path.abspath(__file__))
+_PETS_PATH = os.path.join(_PET_BASE, PETS_FILE)
+_PET_IMG_DIR = os.path.join(_PET_BASE, "assets", "pet")
+_pet_data_channel = None   # kênh #pet-data (để backup), None = chỉ lưu local
+_pet_backup_msg_id = None  # id tin backup mới nhất (để xoá khi backup mới)
+_pets_lock = asyncio.Lock()
+
+
+def _load_pets():
+    try:
+        with open(_PETS_PATH, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_pets_local(pets):
+    """Lưu pets.json nguyên tử (ghi file tạm rồi đổi tên)."""
+    try:
+        tmp = _PETS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(pets, f, ensure_ascii=False)
+        os.replace(tmp, _PETS_PATH)
+    except OSError as e:
+        print(f"pet: không lưu được pets.json: {e!r}")
+
+
+async def _pet_init():
+    """Chạy lúc bot khởi động: tìm/tạo kênh #pet-data, khôi phục dữ liệu
+    từ backup Discord nếu file local trống. Lỗi ở đây không được làm
+    bot chết — mọi thứ đều bọc try/except."""
+    global _pet_data_channel, _pet_backup_msg_id
+    pets = _load_pets()
+    guild = client.get_guild(PET_GUILD_ID)
+    if guild is None:
+        print("pet: không thấy server Zoohoyo, chạy chế độ lưu local thôi.")
+        return
+    channel = discord.utils.get(guild.text_channels, name=PET_DATA_CHANNEL_NAME)
+    if channel is None:
+        try:
+            me = guild.me or guild.get_member(client.user.id)
+            overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+            if me is not None:
+                overwrites[me] = discord.PermissionOverwrite(read_messages=True)
+            channel = await guild.create_text_channel(
+                PET_DATA_CHANNEL_NAME, overwrites=overwrites,
+                reason="Kênh lưu dữ liệu game nuôi bé cá mập",
+            )
+            print("pet: đã tạo kênh #pet-data")
+        except Exception as e:
+            print(f"pet: không tạo được kênh #pet-data ({e!r}), chạy chế độ lưu local thôi.")
+            return
+    _pet_data_channel = channel
+    # Tìm tin backup mới nhất; nếu local trống thì khôi phục từ đó.
+    try:
+        async for msg in channel.history(limit=20):
+            if msg.author.id != client.user.id or not msg.attachments:
+                continue
+            att = next((a for a in msg.attachments if a.filename == PETS_FILE), None)
+            if att is None:
+                continue
+            _pet_backup_msg_id = msg.id
+            if not pets:
+                try:
+                    restored = json.loads((await att.read()).decode("utf-8"))
+                    if isinstance(restored, dict):
+                        pets = restored
+                        _save_pets_local(pets)
+                        print(f"pet: đã khôi phục {len(pets)} bé từ backup Discord.")
+                except Exception as e:
+                    print(f"pet: khôi phục backup thất bại: {e!r}")
+            break
+    except Exception as e:
+        print(f"pet: không đọc được lịch sử kênh backup: {e!r}")
+
+
+async def _pet_backup(pets):
+    """Mirror pets.json lên kênh #pet-data: đăng tin mới kèm file rồi xoá
+    tin backup cũ. Lỗi thì chỉ log, không bao giờ làm hỏng lệnh game."""
+    global _pet_backup_msg_id
+    if _pet_data_channel is None:
+        return
+    try:
+        data = json.dumps(pets, ensure_ascii=False).encode("utf-8")
+        msg = await _pet_data_channel.send(
+            content="💾 Backup dữ liệu nuôi bé cá mập",
+            file=discord.File(io.BytesIO(data), filename=PETS_FILE),
+        )
+        old_id = _pet_backup_msg_id
+        _pet_backup_msg_id = msg.id
+        if old_id and old_id != msg.id:
+            try:
+                old = await _pet_data_channel.fetch_message(old_id)
+                await old.delete()
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"pet: backup Discord thất bại: {e!r}")
+
+
+def _pet_embed(pet):
+    """Embed trạng thái bé + tên file ảnh tâm trạng để đính kèm."""
+    level, xp_in_level = _pet_level(pet.get("xp", 0))
+    mood_key = _pet_mood_key(pet)
+    mood = PET_MOODS[mood_key]
+    now = int(time.time())
+    embed = discord.Embed(
+        title=f"🐠 {pet.get('name', 'bé Cá Mập')}",
+        description=f"Tâm trạng: **{mood['ten']}**",
+        color=0x35A1EB,
+    )
+    embed.add_field(
+        name="⭐ Cấp độ",
+        value=f"Cấp {level} — {xp_in_level}/{PET_XP_PER_LEVEL} XP\n{_pet_bar(xp_in_level)}",
+        inline=False,
+    )
+    embed.add_field(name="🍽️ Đói", value=f"{_pet_bar(pet.get('hunger', 0))} {pet.get('hunger', 0)}/100", inline=False)
+    embed.add_field(name="🎮 Vui", value=f"{_pet_bar(pet.get('fun', 0))} {pet.get('fun', 0)}/100", inline=False)
+    embed.add_field(name="🛁 Sạch", value=f"{_pet_bar(pet.get('clean', 0))} {pet.get('clean', 0)}/100", inline=False)
+    embed.add_field(name="🎂 Tuổi", value=f"{_pet_age_days(pet, now)} ngày", inline=True)
+    embed.add_field(name="👤 Chủ nhân", value=f"<@{pet.get('owner_id')}>", inline=True)
+    embed.set_image(url=f"attachment://{mood['anh']}")
+    return embed, mood["anh"]
+
+
+def _pet_image_file(img_name):
+    """Trả về discord.File ảnh thú, hoặc None nếu thiếu file."""
+    path = os.path.join(_PET_IMG_DIR, img_name)
+    try:
+        return discord.File(path, filename=img_name)
+    except OSError:
+        print(f"pet: thiếu ảnh {path}")
+        return None
+
+
+@tree.command(name="nuoi", description="Nhận nuôi một bé cá mập")
+@app_commands.describe(ten="Tên cho bé (mặc định: bé Cá Mập)")
+async def nuoi(interaction: discord.Interaction, ten: str = "bé Cá Mập"):
+    uid = str(interaction.user.id)
+    ten = (ten or "").strip()[:30] or "bé Cá Mập"
+    now = int(time.time())
+    async with _pets_lock:
+        pets = _load_pets()
+        if uid in pets:
+            await interaction.response.send_message(
+                f"An đã có bé **{pets[uid].get('name', 'bé Cá Mập')}** rồi nè, chăm bé đi! 🐠",
+                ephemeral=True,
+            )
+            return
+        pets[uid] = {
+            "name": ten, "owner_id": interaction.user.id, "xp": 0,
+            "hunger": 100, "fun": 100, "clean": 100,
+            "born_at": now, "updated_at": now,
+            "last_choan": 0, "last_choi": 0, "last_tam": 0,
+        }
+        _save_pets_local(pets)
+    msg = (f"🎉 An đã nhận nuôi bé **{ten}** rồi nè! Bé đang vui vẻ, no căng bụng, "
+           f"sạch sẽ thơm tho. Nhớ cho bé ăn (/choan), chơi cùng (/choi) và "
+           f"tắm rửa (/tam) mỗi ngày nha!")
+    f = _pet_image_file("figurine.png")
+    if f is not None:
+        await interaction.response.send_message(msg, file=f)
+    else:
+        await interaction.response.send_message(msg)
+    await _pet_backup(pets)
+
+
+_PET_ACTIONS = {
+    "choan": {
+        "stat": "hunger", "ten": "cho ăn",
+        "cau": [
+            "Bé ăn ngon lành luôn! 😋",
+            "Bé chén sạch bát rồi, no căng bụng! 🍽️",
+            "Ngon quá đi, bé ăn thêm được nữa không? 😋",
+        ],
+    },
+    "choi": {
+        "stat": "fun", "ten": "chơi cùng", "anh": "dance.gif",
+        "cau": [
+            "Bé chơi vui quá trời! 🎮",
+            "Bé nhảy cẫng lên vì vui! 🐠",
+            "Chơi với bé vui ghê! 🎉",
+        ],
+    },
+    "tam": {
+        "stat": "clean", "ten": "tắm rửa",
+        "cau": [
+            "Bé tắm xong sạch sẽ thơm tho! 🛁",
+            "Tắm xong bé sạch bong kin kít! 🫧",
+            "Bé tắm xong, vây bóng mượt luôn! ✨",
+        ],
+    },
+}
+
+
+async def _pet_do_action(interaction, kind):
+    cfg = _PET_ACTIONS[kind]
+    uid = str(interaction.user.id)
+    now = int(time.time())
+    async with _pets_lock:
+        pets = _load_pets()
+        pet = pets.get(uid)
+        if pet is None:
+            await interaction.response.send_message(
+                "An chưa nhận nuôi bé nào hết, gõ /nuoi trước nha! 🐠",
+                ephemeral=True,
+            )
+            return
+        _pet_apply_decay(pet, now)
+        last = pet.get(f"last_{kind}", 0)
+        if now - last < PET_COOLDOWN_SECONDS:
+            con = (PET_COOLDOWN_SECONDS - (now - last) + 59) // 60
+            _save_pets_local(pets)
+            await interaction.response.send_message(
+                f"Bé vừa {cfg['ten']} rồi, {con} phút nữa mới {cfg['ten']} tiếp được nha! ⏰",
+                ephemeral=True,
+            )
+            return
+        old_level, _ = _pet_level(pet.get("xp", 0))
+        pet[cfg["stat"]] = min(100, pet.get(cfg["stat"], 0) + PET_ACTION_STAT)
+        pet["xp"] = pet.get("xp", 0) + PET_ACTION_XP
+        pet[f"last_{kind}"] = now
+        pet["updated_at"] = now
+        new_level, _ = _pet_level(pet["xp"])
+        _save_pets_local(pets)
+    msg = random.choice(cfg["cau"]).format(name=pet.get("name", "bé Cá Mập"))
+    if new_level > old_level:
+        msg += f"\n🎉 Bé **{pet.get('name', 'bé Cá Mập')}** lên cấp {new_level} rồi nè!"
+    img = cfg.get("anh") or PET_MOODS[_pet_mood_key(pet)]["anh"]
+    f = _pet_image_file(img)
+    if f is not None:
+        await interaction.response.send_message(msg, file=f)
+    else:
+        await interaction.response.send_message(msg)
+    await _pet_backup(pets)
+
+
+@tree.command(name="choan", description="Cho bé cá mập ăn (+25 Đói, +10 XP)")
+async def choan(interaction: discord.Interaction):
+    await _pet_do_action(interaction, "choan")
+
+
+@tree.command(name="choi", description="Chơi cùng bé cá mập (+25 Vui, +10 XP)")
+async def choi(interaction: discord.Interaction):
+    await _pet_do_action(interaction, "choi")
+
+
+@tree.command(name="tam", description="Tắm rửa cho bé cá mập (+25 Sạch, +10 XP)")
+async def tam(interaction: discord.Interaction):
+    await _pet_do_action(interaction, "tam")
+
+
+@tree.command(name="pet", description="Xem bé cá mập của An")
+async def pet(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
+    now = int(time.time())
+    async with _pets_lock:
+        pets = _load_pets()
+        p = pets.get(uid)
+        if p is None:
+            await interaction.response.send_message(
+                "An chưa nhận nuôi bé nào hết, gõ /nuoi trước nha! 🐠",
+                ephemeral=True,
+            )
+            return
+        _pet_apply_decay(p, now)
+        _save_pets_local(pets)
+    embed, img = _pet_embed(p)
+    f = _pet_image_file(img)
+    if f is not None:
+        await interaction.response.send_message(embed=embed, file=f)
+    else:
+        await interaction.response.send_message(embed=embed)
+    await _pet_backup(pets)
+
+
+@tree.command(name="topthu", description="Bảng xếp hạng các bé cá mập")
+async def topthu(interaction: discord.Interaction):
+    pets = _load_pets()
+    if not pets:
+        await interaction.response.send_message(
+            "Chưa ai nuôi bé cá mập hết, gõ /nuoi để nhận nuôi bé đầu tiên nha! 🐠"
+        )
+        return
+    ranked = sorted(
+        pets.values(),
+        key=lambda p: (_pet_level(p.get("xp", 0))[0], p.get("xp", 0)),
+        reverse=True,
+    )[:10]
+    lines = []
+    for i, p in enumerate(ranked, 1):
+        level, _ = _pet_level(p.get("xp", 0))
+        lines.append(
+            f"{i}. <@{p.get('owner_id')}> — **{p.get('name', 'bé Cá Mập')}** — cấp {level} ({p.get('xp', 0)} XP)"
+        )
+    await interaction.response.send_message(
+        "🏆 **Bảng xếp hạng bé cá mập**\n" + "\n".join(lines)
+    )
 
 
 if __name__ == "__main__":
