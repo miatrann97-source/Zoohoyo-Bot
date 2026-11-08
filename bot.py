@@ -2633,7 +2633,7 @@ async def poststatus(interaction: discord.Interaction):
 PET_GUILD_ID = 1370623115142627408
 PET_DATA_CHANNEL_NAME = "pet-data"
 PETS_FILE = "pets.json"
-PET_COOLDOWN_SECONDS = 1800  # 30 phút cho mỗi lệnh cho ăn / chơi / tắm
+PET_COOLDOWN_SECONDS = 1800  # 30 phút cho mỗi lệnh cho ăn / chơi / tắm / ngủ
 PET_DECAY_PER_HOUR = 5       # mỗi chỉ số tụt 5 điểm mỗi giờ (tính lười)
 PET_XP_PER_LEVEL = 100       # 100 XP = 1 cấp
 PET_ACTION_XP = 10           # mỗi lần chăm bé +10 XP
@@ -2649,7 +2649,8 @@ PET_MOODS = {
     "doi": {"ten": "Đói meo 🥺", "anh": "hungry.png"},
     "ban": {"ten": "Bẩn rồi 🛁", "anh": "sit.png"},
     "buon": {"ten": "Buồn 😢", "anh": "sit.png"},
-    "met": {"ten": "Buồn ngủ / mệt 😴", "anh": "sit.png"},
+    "buon_ngu": {"ten": "Buồn ngủ 😴", "anh": "sleep.png"},
+    "met": {"ten": "Mệt 😮‍💨", "anh": "sit.png"},
     "binh_thuong": {"ten": "Bình thường 🙂", "anh": "figurine.png"},
 }
 
@@ -2673,24 +2674,27 @@ def _pet_apply_decay(pet, now_ts):
     elapsed = max(0, now_ts - pet.get("updated_at", now_ts))
     decay = int(elapsed / 3600 * PET_DECAY_PER_HOUR)
     if decay > 0:
-        for key in ("hunger", "fun", "clean"):
-            pet[key] = max(0, pet.get(key, 0) - decay)
+        for key in ("hunger", "fun", "clean", "energy"):
+            pet[key] = max(0, pet.get(key, 100) - decay)
     pet["updated_at"] = now_ts
     return pet
 
 
 def _pet_mood_key(pet):
-    """Tâm trạng theo thứ tự ưu tiên: đói -> bẩn -> buồn -> vui -> mệt -> thường."""
+    """Tâm trạng theo thứ tự ưu tiên: đói -> bẩn -> buồn ngủ -> buồn -> vui -> mệt -> thường."""
     if pet.get("hunger", 0) < 30:
         return "doi"
     if pet.get("clean", 0) < 30:
         return "ban"
+    if pet.get("energy", 100) < 30:
+        return "buon_ngu"
     if pet.get("fun", 0) < 30:
         return "buon"
     if (pet.get("hunger", 0) >= 70 and pet.get("fun", 0) >= 70
-            and pet.get("clean", 0) >= 70):
+            and pet.get("clean", 0) >= 70 and pet.get("energy", 100) >= 70):
         return "vui_ve"
-    if min(pet.get("hunger", 0), pet.get("fun", 0), pet.get("clean", 0)) < 50:
+    if min(pet.get("hunger", 0), pet.get("fun", 0), pet.get("clean", 0),
+           pet.get("energy", 100)) < 50:
         return "met"
     return "binh_thuong"
 
@@ -2822,6 +2826,7 @@ def _pet_embed(pet):
     embed.add_field(name="🍽️ Đói", value=f"{_pet_bar(pet.get('hunger', 0))} {pet.get('hunger', 0)}/100", inline=False)
     embed.add_field(name="🎮 Vui", value=f"{_pet_bar(pet.get('fun', 0))} {pet.get('fun', 0)}/100", inline=False)
     embed.add_field(name="🛁 Sạch", value=f"{_pet_bar(pet.get('clean', 0))} {pet.get('clean', 0)}/100", inline=False)
+    embed.add_field(name="⚡ Năng lượng", value=f"{_pet_bar(pet.get('energy', 100))} {pet.get('energy', 100)}/100", inline=False)
     embed.add_field(name="🎂 Tuổi", value=f"{_pet_age_days(pet, now)} ngày", inline=True)
     embed.add_field(name="👤 Chủ nhân", value=f"<@{pet.get('owner_id')}>", inline=True)
     embed.set_image(url=f"attachment://{mood['anh']}")
@@ -2854,14 +2859,14 @@ async def nuoi(interaction: discord.Interaction, ten: str = "bé Cá Mập"):
             return
         pets[uid] = {
             "name": ten, "owner_id": interaction.user.id, "xp": 0,
-            "hunger": 100, "fun": 100, "clean": 100,
+            "hunger": 100, "fun": 100, "clean": 100, "energy": 100,
             "born_at": now, "updated_at": now,
-            "last_choan": 0, "last_choi": 0, "last_tam": 0,
+            "last_choan": 0, "last_choi": 0, "last_tam": 0, "last_ngu": 0,
         }
         _save_pets_local(pets)
     msg = (f"🎉 An đã nhận nuôi bé **{ten}** rồi nè! Bé đang vui vẻ, no căng bụng, "
-           f"sạch sẽ thơm tho. Nhớ cho bé ăn (/choan), chơi cùng (/choi) và "
-           f"tắm rửa (/tam) mỗi ngày nha!")
+           f"sạch sẽ thơm tho, tràn đầy năng lượng. Nhớ cho bé ăn (/choan), chơi cùng (/choi), "
+           f"tắm rửa (/tam) và cho bé ngủ (/ngu) mỗi ngày nha!")
     f = _pet_image_file("figurine.png")
     if f is not None:
         await interaction.response.send_message(msg, file=f)
@@ -2893,6 +2898,14 @@ _PET_ACTIONS = {
             "Bé tắm xong sạch sẽ thơm tho! 🛁",
             "Tắm xong bé sạch bong kin kít! 🫧",
             "Bé tắm xong, vây bóng mượt luôn! ✨",
+        ],
+    },
+    "ngu": {
+        "stat": "energy", "ten": "ngủ", "anh": "sleep.png",
+        "cau": [
+            "Bé ngủ ngon lành, mơ đẹp luôn! 😴",
+            "Bé chìm vào giấc ngủ, mai lại chơi tiếp nha! 💤",
+            "Shhh… bé đang ngủ, đừng làm ồn nha! 😴",
         ],
     },
 }
@@ -2953,6 +2966,11 @@ async def choi(interaction: discord.Interaction):
 @tree.command(name="tam", description="Tắm rửa cho bé cá mập (+25 Sạch, +10 XP)")
 async def tam(interaction: discord.Interaction):
     await _pet_do_action(interaction, "tam")
+
+
+@tree.command(name="ngu", description="Cho bé cá mập đi ngủ (+25 Năng lượng, +10 XP)")
+async def ngu(interaction: discord.Interaction):
+    await _pet_do_action(interaction, "ngu")
 
 
 @tree.command(name="pet", description="Xem bé cá mập của An")
