@@ -1123,12 +1123,27 @@ GREETING_REPLIES = {
 _greet_last = {}  # user_id -> thời điểm bot chào lần cuối (tránh spam)
 
 
+def _fold(s):
+    """Bỏ dấu để so khớp cách gõ kéo dài/không dấu ("lôooo" -> "lo")."""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
 def _greet_kind(text):
     """Tin nhắn có phải lời chào không -> 'morning' / 'evening' / 'generic' / None."""
     if text.startswith("hi vọng") or text.startswith("hi vong"):
         return None  # "hi vọng" không phải lời chào, đừng chào lại
+    # Nới lỏng cách gõ của mọi người: "hế lôooo", "hello!!!", "hế lô!",
+    # "chao ca nha" (không dấu) cũng là lời chào.
+    t = _fold(text)
+    t = re.sub(r"(.)\1{2,}", r"\1", t)  # chữ lặp 3+ lần -> 1 lần
+    t = re.sub(r"[^\w\s]", " ", t)  # dấu câu/emoji -> khoảng trắng
+    t = " ".join(t.split())
     for phrase in sorted(GREETING_PHRASES, key=len, reverse=True):
-        if text == phrase or text.startswith(phrase + " "):
+        p = _fold(phrase)
+        if t == p or t.startswith(p + " "):
             if "buổi sáng" in phrase or "morning" in phrase:
                 return "morning"
             if "buổi tối" in phrase or "buổi đêm" in phrase or "evening" in phrase:
