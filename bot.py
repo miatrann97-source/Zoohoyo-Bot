@@ -1099,6 +1099,7 @@ GREETING_PHRASES = [
     "chào buổi đêm", "xin chào", "chào cả nhà", "chào mọi người",
     "good morning", "good afternoon", "good evening",
     "hello", "hi", "chào", "hế lô", "helo", "alo",
+    "mấy cưng", "mọi người", "các bạn", "morning",
 ]
 
 GREETING_REPLIES = {
