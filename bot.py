@@ -1183,6 +1183,12 @@ async def _maybe_greet(message):
 # còn Reddit .json trả 403 nên chỉ đổi domain sang vxreddit.
 
 _REEMBED_UA = "ZoohoyoBot/1.0 (Discord re-embed for Zoohoyo server)"
+# UA trình duyệt thật — chỉ dùng cho dự phòng OpenGraph của YouTube,
+# vì UA của bot thường bị YouTube trả trang kiểm tra bot.
+_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 _REEMBED_SEEN = {}  # url -> monotonic, tránh đăng lại cùng 1 link liên tục
 _REEMBED_COOLDOWN = 600  # 10 phút
 _REEMBED_FIXER_HOSTS = {
@@ -1205,10 +1211,12 @@ _REEMBED_MEDIA_SUFFIX = (
 )
 
 
-def _http_get_text(url, timeout=8):
+def _http_get_text(url, timeout=8, user_agent=None):
     """GET một trang web, trả về text hoặc None khi lỗi."""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": _REEMBED_UA})
+        req = urllib.request.Request(
+            url, headers={"User-Agent": user_agent or _REEMBED_UA}
+        )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
         return raw.decode("utf-8", errors="replace")
@@ -1217,8 +1225,8 @@ def _http_get_text(url, timeout=8):
         return None
 
 
-def _http_get_json(url, timeout=8):
-    text = _http_get_text(url, timeout=timeout)
+def _http_get_json(url, timeout=8, user_agent=None):
+    text = _http_get_text(url, timeout=timeout, user_agent=user_agent)
     if not text:
         return None
     try:
@@ -1469,15 +1477,24 @@ def _reembed_facebook(url):
 
 def _reembed_youtube(url):
     """YouTube (kể cả Shorts): lấy tiêu đề + kênh + thumbnail qua oEmbed, dự phòng OpenGraph."""
-    data = _http_get_json(
-        "https://www.youtube.com/oembed?url=" + urllib.parse.quote(url, safe="") + "&format=json"
-    ) or {}
+    oembed_url = (
+        "https://www.youtube.com/oembed?url="
+        + urllib.parse.quote(url, safe="")
+        + "&format=json"
+    )
+    data = _http_get_json(oembed_url) or {}
+    if not data.get("title"):
+        # YouTube hay chặn IP máy chủ kiểu lúc được lúc không — thử lại 1 lần.
+        time.sleep(1)
+        data = _http_get_json(oembed_url) or {}
     title = data.get("title")
     author = data.get("author_name")
     thumb = data.get("thumbnail_url")
     desc = None
     if not title:
-        og = _og_tags(_http_get_text(url))
+        # Dự phòng: đọc OpenGraph của trang video bằng UA trình duyệt
+        # (UA của bot thường bị YouTube trả trang kiểm tra bot).
+        og = _og_tags(_http_get_text(url, user_agent=_CHROME_UA))
         title = og.get("og:title") or og.get("twitter:title")
         desc = og.get("og:description") or og.get("twitter:description")
         thumb = (
