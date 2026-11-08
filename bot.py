@@ -1442,6 +1442,18 @@ def _reembed_facebook(url):
             embed.description = _short(desc, 2000)
         if img:
             embed.set_image(url=urllib.parse.urljoin(url, img))
+        video = None
+        if (og.get("og:type") or "").lower().startswith("video"):
+            # Facebook không đưa link video trong OG; lấy qua embeds.now
+            # (nó cung cấp og:video là file mp4 phát được trong Discord).
+            video = og.get("og:video:secure_url") or og.get("og:video")
+            if not video:
+                og2 = _og_tags(_http_get_text("https://embeds.now/" + url))
+                video = og2.get("og:video:secure_url") or og2.get("og:video")
+        if video:
+            # discord.py không có set_video công khai; gán _video để
+            # to_dict() đưa video vào payload cho Discord render trình phát.
+            embed._video = {"url": video}
         return embed, None
     return None, "https://embeds.now/" + url
 
