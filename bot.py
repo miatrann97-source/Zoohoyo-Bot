@@ -1180,7 +1180,7 @@ _REEMBED_FIXER_HOSTS = {
     "embeds.now", "facebed.com",
 }
 _REEMBED_SKIP_HOSTS = {
-    "youtube.com", "www.youtube.com", "youtu.be", "music.youtube.com",
+    "music.youtube.com",
     "discord.com", "discord.gg", "discordapp.com",
 }
 _REEMBED_MEDIA_SUFFIX = (
@@ -1405,6 +1405,35 @@ def _reembed_facebook(url):
     return None, "https://embeds.now/" + url
 
 
+def _reembed_youtube(url):
+    """YouTube (kể cả Shorts): lấy tiêu đề + kênh + thumbnail qua oEmbed, dự phòng OpenGraph."""
+    data = _http_get_json(
+        "https://www.youtube.com/oembed?url=" + urllib.parse.quote(url, safe="") + "&format=json"
+    ) or {}
+    title = data.get("title")
+    author = data.get("author_name")
+    thumb = data.get("thumbnail_url")
+    desc = None
+    if not title:
+        og = _og_tags(_http_get_text(url))
+        title = og.get("og:title") or og.get("twitter:title")
+        desc = og.get("og:description") or og.get("twitter:description")
+        thumb = (
+            og.get("og:image:secure_url")
+            or og.get("og:image")
+            or og.get("twitter:image")
+        )
+    if not title and not thumb:
+        return None, None
+    footer = f"YouTube · {author}" if author else "YouTube"
+    embed = _embed_base(title or "Video YouTube", url, 0xFF0000, footer)
+    if desc:
+        embed.description = _short(desc, 2000)
+    if thumb:
+        embed.set_image(url=thumb)
+    return embed, None
+
+
 def _reembed_generic(url, platform=None, color=0x5865F2):
     """Web bất kỳ: đọc thẻ OpenGraph của trang rồi dựng embed."""
     og = _og_tags(_http_get_text(url))
@@ -1454,6 +1483,8 @@ def _reembed_for_url(url):
         return _reembed_wikipedia(url)
     if "facebook.com" in host or host in ("fb.com", "fb.watch"):
         return _reembed_facebook(url)
+    if "youtube.com" in host or host == "youtu.be":
+        return _reembed_youtube(url)
     return _reembed_generic(url)
 
 
