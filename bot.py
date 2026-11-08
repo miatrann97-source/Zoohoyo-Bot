@@ -1400,8 +1400,33 @@ def _reembed_wikipedia(url):
     return embed, None
 
 
+_FB_GENERIC_TITLES = {
+    "facebook",
+    "log into facebook",
+    "log in or sign up",
+    "discover popular videos | facebook",
+}
+
+
 def _reembed_facebook(url):
-    """Facebook qua embeds.now (chỉ bài công khai, kém ổn định nhất)."""
+    """Facebook: thử đọc OpenGraph của bài công khai trước (tiêu đề + mô tả + ảnh),
+    không đọc được (hoặc chỉ ra tiêu đề chung chung) thì dùng embeds.now như trước."""
+    og = _og_tags(_http_get_text(url))
+    title = og.get("og:title") or og.get("twitter:title")
+    if title and title.strip().lower() not in _FB_GENERIC_TITLES:
+        desc = og.get("og:description") or og.get("twitter:description")
+        img = (
+            og.get("og:image:secure_url")
+            or og.get("og:image")
+            or og.get("twitter:image")
+        )
+        site = og.get("og:site_name") or "Facebook"
+        embed = _embed_base(title, url, 0x1877F2, f"Nguồn: {site}")
+        if desc:
+            embed.description = _short(desc, 2000)
+        if img:
+            embed.set_image(url=urllib.parse.urljoin(url, img))
+        return embed, None
     return None, "https://embeds.now/" + url
 
 
