@@ -2933,7 +2933,7 @@ async def nuoi(interaction: discord.Interaction, ten: str = "bé Cá Mập"):
 
 _PET_ACTIONS = {
     "choan": {
-        "stat": "hunger", "ten": "cho ăn",
+        "stat": "hunger", "ten": "cho ăn", "anh": "eat.gif",
         "cau": [
             "Bé ăn ngon lành luôn! 😋",
             "Bé chén sạch bát rồi, no căng bụng! 🍽️",
@@ -2949,7 +2949,7 @@ _PET_ACTIONS = {
         ],
     },
     "tam": {
-        "stat": "clean", "ten": "tắm rửa",
+        "stat": "clean", "ten": "tắm rửa", "anh": "bath.gif",
         "cau": [
             "Bé tắm xong sạch sẽ thơm tho! 🛁",
             "Tắm xong bé sạch bong kin kít! 🫧",
@@ -2957,11 +2957,19 @@ _PET_ACTIONS = {
         ],
     },
     "ngu": {
-        "stat": "energy", "ten": "ngủ", "anh": "sleep.png",
+        "stat": "energy", "ten": "ngủ", "anh": "sleep.gif",
         "cau": [
             "Bé ngủ ngon lành, mơ đẹp luôn! 😴",
             "Bé chìm vào giấc ngủ, mai lại chơi tiếp nha! 💤",
             "Shhh… bé đang ngủ, đừng làm ồn nha! 😴",
+        ],
+    },
+    "vesinh": {
+        "stat": None, "ten": "đi vệ sinh", "anh": "toilet.gif",
+        "cau": [
+            "Bé đi vệ sinh xong, nhẹ cả người! 🚽",
+            "Xả nước rồi, bé sạch sẽ thơm tho! 🚽",
+            "Bé đi vệ sinh xong, mặt hớn hở luôn! 😄",
         ],
     },
 }
@@ -2991,7 +2999,8 @@ async def _pet_do_action(interaction, kind):
             )
             return
         old_level, _ = _pet_level(pet.get("xp", 0))
-        pet[cfg["stat"]] = min(100, pet.get(cfg["stat"], 0) + PET_ACTION_STAT)
+        if cfg.get("stat"):
+            pet[cfg["stat"]] = min(100, pet.get(cfg["stat"], 0) + PET_ACTION_STAT)
         pet["xp"] = pet.get("xp", 0) + PET_ACTION_XP
         pet[f"last_{kind}"] = now
         pet["updated_at"] = now
@@ -3027,6 +3036,11 @@ async def tam(interaction: discord.Interaction):
 @tree.command(name="ngu", description="Cho bé cá mập đi ngủ (+25 Năng lượng, +10 XP)")
 async def ngu(interaction: discord.Interaction):
     await _pet_do_action(interaction, "ngu")
+
+
+@tree.command(name="vesinh", description="Cho bé cá mập đi vệ sinh (+10 XP)")
+async def vesinh(interaction: discord.Interaction):
+    await _pet_do_action(interaction, "vesinh")
 
 
 @tree.command(name="pet", description="Xem bé cá mập của An")
