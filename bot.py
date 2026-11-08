@@ -1249,7 +1249,9 @@ def _og_tags(page):
 def _short(text, limit=2000):
     text = (text or "").strip()
     if len(text) > limit:
-        return text[:limit].rstrip() + "…"
+        # Cắt còn limit-1 rồi thêm "…" để tổng không vượt limit
+        # (Discord từ chối title dài hơn 256 ký tự).
+        return text[: limit - 1].rstrip() + "…"
     return text
 
 
@@ -1300,9 +1302,16 @@ def _embed_from_fx(st, url, color, platform):
     else:
         videos = media.get("videos") or []
         if videos:
-            thumb = videos[0].get("thumbnail") or videos[0].get("poster")
+            v = videos[0]
+            thumb = (
+                v.get("thumbnail_url") or v.get("thumbnail") or v.get("poster")
+            )
             if thumb:
                 embed.set_image(url=thumb)
+            if v.get("url"):
+                # Gắn video để Discord render trình phát ngay trong thẻ
+                # (discord.py không có set_video công khai).
+                embed._video = {"url": v["url"]}
     ts = st.get("created_timestamp")
     if ts:
         try:
