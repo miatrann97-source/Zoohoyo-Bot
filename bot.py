@@ -1085,7 +1085,8 @@ ROLE_PICK_EMOJI = {  # emoji -> tên role trong server mới
 }
 ROLE_PICK_MARKER = "Chọn vai trò của bạn trong Dự án của Cá"  # dấu nhận diện tin chọn role (tin text cũ lẫn embed mới)
 ROLE_PICK_EMBED_COLOR = 0x3498DB  # viền embed xanh dương, hợp tông server
-ROLE_PICK_GIF_PATH = "assets/pet/dance.gif"  # GIF bé cá nhảy múa (4 khung)
+ROLE_PICK_GIF_PATH = "assets/pet/dance.gif"  # GIF bé cá nhảy múa (4 khung) — dự phòng khi thiếu ảnh mới
+ROLE_IMAGE_PATH = "assets/role-pick.webp"  # ảnh tĩnh mới: bé cá giơ tay trái chỉ lên khung "pick role ở đây nè" (An duyệt 24/11)
 ROLE_PICK_TITLE = "🎭 Chọn vai trò của bạn trong Dự án của Cá!"
 ROLE_PICK_DESCRIPTIONS = {  # tên role -> mô tả trong embed
     "Dev": "Lập trình, code game cùng Cá",
@@ -1187,8 +1188,8 @@ async def _edit_to_embed_with_image(msg, embed, image_path, log_tag):
 
 
 def _role_pick_build_embed(guild):
-    """Dựng embed chọn role: khung viền xanh, mỗi role một field, GIF bé nhảy
-    làm ảnh trong khung (gắn lúc đăng/sửa)."""
+    """Dựng embed chọn role: khung viền xanh, mỗi role một field, ảnh bé cá
+    chỉ tay làm ảnh trong khung (gắn lúc đăng/sửa)."""
     embed = discord.Embed(
         title=ROLE_PICK_TITLE,
         description=(
@@ -1207,6 +1208,16 @@ def _role_pick_build_embed(guild):
         )
     embed.set_footer(text="Dự án của Cá 🐟 — bấm emoji là có role liền!")
     return embed
+
+
+def _role_pick_desired_image_path():
+    """Đường dẫn ảnh embed chọn role: ảnh tĩnh mới, thiếu file thì về lại
+    dance.gif như cũ (chỉ log, không crash)."""
+    if os.path.exists(ROLE_IMAGE_PATH):
+        return ROLE_IMAGE_PATH
+    print(f"role-pick: không thấy ảnh {ROLE_IMAGE_PATH}, dùng lại {ROLE_PICK_GIF_PATH}")
+    return ROLE_PICK_GIF_PATH
+
 
 _role_pick_message_id = None  # id tin chọn role, chỉ lưu trong RAM
 
@@ -1242,26 +1253,27 @@ async def _role_pick_ensure():
         return
     try:
         msg = await _role_pick_find_message(channel)
+        image_path = _role_pick_desired_image_path()
         if msg is None:
             embed = _role_pick_build_embed(guild)
             files = []
             try:
-                files.append(discord.File(ROLE_PICK_GIF_PATH))
-                embed.set_image(url="attachment://" + os.path.basename(ROLE_PICK_GIF_PATH))
+                files.append(discord.File(image_path))
+                embed.set_image(url="attachment://" + os.path.basename(image_path))
             except (OSError, ValueError) as e:
-                print(f"role-pick: không đọc được GIF {ROLE_PICK_GIF_PATH}: {e}")
+                print(f"role-pick: không đọc được ảnh {image_path}: {e}")
             msg = await channel.send(embed=embed, files=files)
             print(f"role-pick: đã đăng tin chọn role mới (id {msg.id})")
         elif not _message_is_embed_with_marker(msg, ROLE_PICK_MARKER):
             if await _edit_to_embed_with_image(
-                msg, _role_pick_build_embed(guild), ROLE_PICK_GIF_PATH, "role-pick"
+                msg, _role_pick_build_embed(guild), image_path, "role-pick"
             ):
                 print(f"role-pick: đã đổi tin text cũ thành embed (id {msg.id})")
-        elif not _message_ready_for_image(msg, ROLE_PICK_GIF_PATH):
-            # Đã là embed nhưng còn ảnh cũ hoặc file đính kèm thừa (vd đổi
-            # sang GIF mới sau này): sửa lại để đổi ảnh và gỡ file thừa.
+        elif not _message_ready_for_image(msg, image_path):
+            # Đã là embed nhưng còn ảnh cũ (dance.gif) hoặc file đính kèm
+            # thừa: sửa lại để đổi sang ảnh mới và gỡ file thừa.
             if await _edit_to_embed_with_image(
-                msg, _role_pick_build_embed(guild), ROLE_PICK_GIF_PATH, "role-pick"
+                msg, _role_pick_build_embed(guild), image_path, "role-pick"
             ):
                 print(f"role-pick: đã đổi ảnh tin chọn role (id {msg.id})")
         _role_pick_message_id = msg.id
