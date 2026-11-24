@@ -1473,6 +1473,207 @@ async def _welcome_ensure():
         print(f"welcome: lỗi khi chuẩn bị tin chào mừng: {e}")
 
 
+# --- Tin lộ trình game (roadmap) ---
+# An dặn 2026-11-24: kênh #🗺️・roadmap phải có nội dung, và từ nay mọi tin
+# trong server đều do chính bot Cá Owner đăng — KHÔNG dùng tài khoản của An
+# để đăng gì hết (kể cả chào mừng hay thông báo). Vì vậy roadmap cũng là
+# embed do bot đăng/sửa, theo cùng kiểu find-or-create như tin chào mừng.
+ROADMAP_CHANNEL_MATCH = "roadmap"  # tìm kênh theo tên, đừng hardcode id
+ROADMAP_MARKER = "Lộ trình phát triển game của Cá"  # dấu nhận diện embed roadmap
+ROADMAP_EMBED_COLOR = 0x1ABC9C  # viền embed xanh ngọc
+ROADMAP_EMBED_TITLE = "🗺️ Lộ trình phát triển game của Cá"
+ROADMAP_EMBED_FOOTER = "Lộ trình do Cá Owner cập nhật — có gì mới Cá sửa lại ở đây!"
+
+
+def _roadmap_build_embed(guild):
+    """Dựng embed lộ trình: mỗi game một field, chỉ ghi những gì đã biết
+    chắc (đã xong / đang chờ Cá quyết / sắp tới theo kế hoạch đã chốt),
+    không bịa thêm mốc nào."""
+    embed = discord.Embed(
+        title=ROADMAP_EMBED_TITLE,
+        description="Cá đang làm gì, sắp làm gì — coi ở đây là biết hết nè!",
+        color=ROADMAP_EMBED_COLOR,
+    )
+    embed.add_field(
+        name="🐟 Flappy Fish",
+        value=(
+            "✅ v1 đang chơi được: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+            "🔄 v2: bản xem trước đang chờ Cá duyệt\n"
+            "⏳ Ra mắt v2 ngay sau khi Cá duyệt xong"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🍬 Animal Crush",
+        value=(
+            "✅ v32.37 đang chơi được: https://miatrann97-source.github.io/animal-crush/ — 50 màn, boss Quái Kẹo Dẻo, truyện 16 chương\n"
+            f"⏳ Màn mới sẽ báo ở {_welcome_channel_mention(guild, 'cập-nhật')}"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🐱 Bé Cá Heartopia (game 3D Sài Gòn)",
+        value=(
+            "✅ Bước 5 xong: map Sài Gòn — hẻm, 5 nhà, tiệm vẽ + trà sữa, chợ, kênh + cầu gỗ, vườn trên sân thượng, 5 NPC + Mimi\n"
+            "🔄 Đang chờ Cá quyết: thay bản demo đảo bằng map Sài Gòn không\n"
+            "⏳ Sau khi duyệt: build Windows + WebGL mới cho mọi người chơi thử"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text=ROADMAP_EMBED_FOOTER)
+    return embed
+
+
+async def _roadmap_find_message(channel):
+    """Quét lịch sử kênh, tìm embed lộ trình do chính bot đăng."""
+    try:
+        async for msg in channel.history(limit=100):
+            if msg.author.id == client.user.id and _embed_has_marker(msg, ROADMAP_MARKER):
+                return msg
+    except discord.DiscordException as e:
+        print(f"roadmap: không quét được lịch sử kênh {channel.name}: {e}")
+    return None
+
+
+def _roadmap_embed_matches(msg, desired):
+    """Embed lộ trình hiện tại đã giống nội dung mới nhất chưa (so tiêu đề
+    + mô tả + từng field) — giống rồi thì khỏi sửa."""
+    for emb in getattr(msg, "embeds", []) or []:
+        if ROADMAP_MARKER not in (emb.title or ""):
+            continue
+        if (emb.description or "") != (desired.description or ""):
+            return False
+        if len(emb.fields) != len(desired.fields):
+            return False
+        for old, new in zip(emb.fields, desired.fields):
+            if old.name != new.name or old.value != new.value:
+                return False
+        return True
+    return False
+
+
+async def _roadmap_ensure():
+    """Đảm bảo embed lộ trình của bot có trong #🗺️・roadmap của server mới.
+    Chưa có thì đăng mới, có rồi mà nội dung cũ thì sửa lại cho mới nhất.
+    Lỗi thì chỉ in log, không làm bot chết."""
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("roadmap: không thấy server Dự án của Cá, bỏ qua")
+        return
+    channel = None
+    for ch in guild.text_channels:
+        if ROADMAP_CHANNEL_MATCH in ch.name:
+            channel = ch
+            break
+    if channel is None:
+        print("roadmap: không tìm thấy kênh roadmap trong server mới")
+        return
+    try:
+        msg = await _roadmap_find_message(channel)
+        embed = _roadmap_build_embed(guild)
+        if msg is None:
+            await channel.send(embed=embed)
+            print("roadmap: đã đăng embed lộ trình mới")
+        elif not _message_is_embed_with_marker(msg, ROADMAP_MARKER):
+            await msg.edit(content=None, embed=embed)
+            print(f"roadmap: đã đổi tin cũ thành embed lộ trình (id {msg.id})")
+        elif not _roadmap_embed_matches(msg, embed):
+            await msg.edit(embed=embed)
+            print(f"roadmap: đã cập nhật embed lộ trình (id {msg.id})")
+        else:
+            print("roadmap: embed lộ trình đã mới nhất")
+    except discord.DiscordException as e:
+        print(f"roadmap: lỗi khi chuẩn bị embed lộ trình: {e}")
+
+
+# --- Hàng đợi thông báo game (đăng sau khi An duyệt) ---
+# An dặn 2026-11-24: mỗi lần cập nhật game hay có game mới, Bom đăng lên
+# kênh ĐÚNG của server — và bắt buộc phải được An duyệt trước. Quy trình:
+# Bom soạn nội dung → An duyệt trong chat → Bom thêm một mục vào
+# announcements.json rồi up lên repo → bot (Cá Owner) tự đăng mục đó lên
+# đúng kênh khi khởi động lại, rồi Bom kiểm live. Bot KHÔNG tự bịa tin,
+# KHÔNG đăng gì chưa qua An duyệt.
+ANNOUNCEMENTS_PATH = "announcements.json"
+
+
+def _announcements_load():
+    """Đọc hàng đợi thông báo: thiếu file thì coi như không có gì chờ."""
+    try:
+        with open(ANNOUNCEMENTS_PATH, "r", encoding="utf-8") as f:
+            items = json.load(f)
+        if isinstance(items, list):
+            return items
+        print("announcements: file không phải danh sách, bỏ qua")
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as e:
+        print(f"announcements: không đọc được {ANNOUNCEMENTS_PATH}: {e}")
+    return []
+
+
+async def _announcements_ensure():
+    """Đăng các thông báo trong announcements.json mà kênh đích chưa có.
+    Mỗi mục có id riêng làm marker trong footer — bot quét lịch sử kênh,
+    thấy rồi thì bỏ qua, chưa thấy mới đăng. Nhờ vậy up lại code cũng
+    không đăng trùng, và bot không bao giờ đăng tin chưa có trong file
+    (tức là chưa qua An duyệt)."""
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("announcements: không thấy server Dự án của Cá, bỏ qua")
+        return
+    items = _announcements_load()
+    if not items:
+        return
+    for item in items:
+        try:
+            item_id = str(item.get("id", "")).strip()
+            channel_match = str(item.get("channel", "")).strip()
+            title = str(item.get("title", "")).strip()
+            description = str(item.get("description", "")).strip()
+            if not item_id or not channel_match or not title or not description:
+                print(f"announcements: mục thiếu id/kênh/tiêu đề/nội dung, bỏ qua: {item}")
+                continue
+            channel = None
+            for ch in guild.text_channels:
+                if channel_match in ch.name:
+                    channel = ch
+                    break
+            if channel is None:
+                print(f"announcements: không tìm thấy kênh '{channel_match}' cho mục {item_id}")
+                continue
+            marker = f"ann:{item_id}"
+            already = False
+            try:
+                async for msg in channel.history(limit=100):
+                    if msg.author.id == client.user.id and _embed_has_marker(msg, marker):
+                        already = True
+                        break
+            except discord.DiscordException as e:
+                print(f"announcements: không quét được lịch sử kênh {channel.name}: {e}")
+                continue
+            if already:
+                continue
+            color = item.get("color", 0x3498DB)
+            try:
+                color = int(color)
+            except (TypeError, ValueError):
+                color = 0x3498DB
+            embed = discord.Embed(title=title, description=description, color=color)
+            embed.set_footer(text=f"Dự án của Cá 🐟 — {marker}")
+            files = []
+            image_path = str(item.get("image", "") or "").strip()
+            if image_path:
+                try:
+                    files.append(discord.File(image_path))
+                    embed.set_image(url="attachment://" + os.path.basename(image_path))
+                except (OSError, ValueError) as e:
+                    print(f"announcements: không đọc được ảnh {image_path} cho mục {item_id}: {e}")
+            await channel.send(embed=embed, files=files)
+            print(f"announcements: đã đăng mục {item_id} vào #{channel.name}")
+        except discord.DiscordException as e:
+            print(f"announcements: lỗi khi đăng mục {item.get('id')}: {e}")
+
+
 @client.event
 async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
@@ -1491,6 +1692,14 @@ async def on_ready():
         await _welcome_ensure()
     except Exception as e:
         print(f"welcome: khởi tạo tin chào mừng thất bại: {e!r}")
+    try:
+        await _roadmap_ensure()
+    except Exception as e:
+        print(f"roadmap: khởi tạo embed lộ trình thất bại: {e!r}")
+    try:
+        await _announcements_ensure()
+    except Exception as e:
+        print(f"announcements: đăng thông báo chờ thất bại: {e!r}")
     if not update_board_loop.is_running():
         update_board_loop.start()
     if not daily_quote_prompt_loop.is_running():
