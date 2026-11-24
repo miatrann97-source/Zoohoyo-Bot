@@ -1098,11 +1098,14 @@ ROLE_PICK_DESCRIPTIONS = {  # tên role -> mô tả trong embed
 
 def _embed_has_marker(msg, marker):
     """Tin có chứa marker trong content (tin text cũ) hoặc trong tiêu đề /
-    mô tả của embed (tin embed mới) không."""
+    mô tả / chân của embed (tin embed mới) không."""
     if marker in (msg.content or ""):
         return True
     for emb in getattr(msg, "embeds", []) or []:
         if marker in (emb.title or "") or marker in (emb.description or ""):
+            return True
+        footer = getattr(emb, "footer", None)
+        if footer is not None and marker in (getattr(footer, "text", "") or ""):
             return True
     return False
 
@@ -1111,6 +1114,9 @@ def _message_is_embed_with_marker(msg, marker):
     """Tin đã là embed chứa marker chưa (để khỏi sửa lại tin embed có sẵn)."""
     for emb in getattr(msg, "embeds", []) or []:
         if marker in (emb.title or "") or marker in (emb.description or ""):
+            return True
+        footer = getattr(emb, "footer", None)
+        if footer is not None and marker in (getattr(footer, "text", "") or ""):
             return True
     return False
 
@@ -1641,16 +1647,14 @@ async def _announcements_ensure():
                 print(f"announcements: không tìm thấy kênh '{channel_match}' cho mục {item_id}")
                 continue
             marker = f"ann:{item_id}"
-            already = False
+            existing = None
             try:
                 async for msg in channel.history(limit=100):
                     if msg.author.id == client.user.id and _embed_has_marker(msg, marker):
-                        already = True
+                        existing = msg
                         break
             except discord.DiscordException as e:
                 print(f"announcements: không quét được lịch sử kênh {channel.name}: {e}")
-                continue
-            if already:
                 continue
             color = item.get("color", 0x3498DB)
             try:
@@ -1667,6 +1671,27 @@ async def _announcements_ensure():
                     embed.set_image(url="attachment://" + os.path.basename(image_path))
                 except (OSError, ValueError) as e:
                     print(f"announcements: không đọc được ảnh {image_path} cho mục {item_id}: {e}")
+            if existing is not None:
+                # Đã đăng rồi: nội dung trong file đổi (ví dụ An duyệt sửa chữ)
+                # thì sửa tin tại chỗ, không đăng trùng.
+                old = existing.embeds[0] if existing.embeds else None
+                old_color = old.color.value if old is not None and old.color else None
+                if (
+                    old is not None
+                    and old.title == title
+                    and old.description == description
+                    and old_color == color
+                ):
+                    continue
+                try:
+                    if files:
+                        await existing.edit(embed=embed, files=files)
+                    else:
+                        await existing.edit(embed=embed)
+                    print(f"announcements: đã sửa mục {item_id} ở #{channel.name}")
+                except discord.DiscordException as e:
+                    print(f"announcements: lỗi khi sửa mục {item_id}: {e}")
+                continue
             await channel.send(embed=embed, files=files)
             print(f"announcements: đã đăng mục {item_id} vào #{channel.name}")
         except discord.DiscordException as e:
