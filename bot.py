@@ -1726,6 +1726,74 @@ async def _announcements_ensure():
             print(f"announcements: lỗi khi đăng mục {item.get('id')}: {e}")
 
 
+# --- Sửa 3 tin cũ còn giọng cute trong server mới ---
+# An duyệt 2026-11-24: 3 tin do bot đăng hồi setup (10:32-10:42 24/11) còn
+# chữ "nè"/"nhen" — tin ghim #❓・faq, tin ghim #👋・giới-thiệu, tin trả lời
+# 10:42 ở #🙋・hỏi-đáp. Bot tự sửa tại chỗ khi khởi động lại, không đăng
+# tin mới. Chỉ sửa đúng tin có nội dung cũ nguyên văn, không đụng tin khác.
+LEGACY_TEXT_FIXES = [
+    (
+        "faq",  # kênh #❓・faq — tin ghim liệt kê game cũ
+        "Muốn chơi game của Cá thì tải ở đây nè:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
+        "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
+        FAQ_QA[0][1],  # bản liệt kê game chuyên nghiệp đã duyệt
+    ),
+    (
+        "giới-thiệu",  # kênh #👋・giới-thiệu — tin ghim mẫu giới thiệu cũ
+        "👋 Chào mừng! Giới thiệu xíu nè:\n"
+        "▸ Tên bạn là gì?\n"
+        "▸ Thích game nào của Cá nhất?\n"
+        "▸ Bạn tới từ đâu?\n"
+        "Cứ viết vài dòng là được, cả nhà làm quen với nhau nhen! 💙🐟",
+        "👋 Chào mừng! Hãy giới thiệu về bạn:\n"
+        "▸ Tên bạn là gì?\n"
+        "▸ Bạn thích tựa game nào nhất?\n"
+        "▸ Bạn đến từ đâu?\n"
+        "Viết vài dòng để mọi người làm quen với nhau.",
+    ),
+    (
+        "hỏi-đáp",  # kênh #🙋・hỏi-đáp — tin trả lời cũ 10:42
+        "Muốn chơi game của Cá thì tải ở đây nè:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
+        "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
+        FAQ_QA[0][1],
+    ),
+]
+
+
+async def _legacy_text_ensure():
+    """Sửa tại chỗ 3 tin cũ trong LEGACY_TEXT_FIXES: quét lịch sử từng
+    kênh, tin nào do chính bot đăng và có đúng nội dung cũ thì sửa thành
+    nội dung mới. Chạy mỗi lần khởi động, đã sửa rồi thì không sửa lại.
+    Lỗi thì chỉ in log, không làm bot chết."""
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("legacy-text: không thấy server Dự án của Cá, bỏ qua")
+        return
+    for channel_match, old_text, new_text in LEGACY_TEXT_FIXES:
+        channel = None
+        for ch in guild.text_channels:
+            if channel_match in ch.name:
+                channel = ch
+                break
+        if channel is None:
+            print(f"legacy-text: không tìm thấy kênh '{channel_match}'")
+            continue
+        try:
+            async for msg in channel.history(limit=100):
+                if msg.author.id == client.user.id and (msg.content or "") == old_text:
+                    try:
+                        await msg.edit(content=new_text)
+                        print(f"legacy-text: đã sửa tin cũ ở #{channel.name} (id {msg.id})")
+                    except discord.DiscordException as e:
+                        print(f"legacy-text: không sửa được tin ở #{channel.name}: {e}")
+        except discord.DiscordException as e:
+            print(f"legacy-text: không quét được lịch sử kênh {channel.name}: {e}")
+
+
 @client.event
 async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
@@ -1752,6 +1820,10 @@ async def on_ready():
         await _announcements_ensure()
     except Exception as e:
         print(f"announcements: đăng thông báo chờ thất bại: {e!r}")
+    try:
+        await _legacy_text_ensure()
+    except Exception as e:
+        print(f"legacy-text: sửa tin cũ thất bại: {e!r}")
     if not update_board_loop.is_running():
         update_board_loop.start()
     if not daily_quote_prompt_loop.is_running():
