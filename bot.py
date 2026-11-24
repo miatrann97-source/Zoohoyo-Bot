@@ -65,7 +65,11 @@ for _n in ("discord.voice_client", "discord.player", "discord.voice_state", "dis
 FAQ_QA = [
     (
         ("tải game", "tải ở đâu", "download", "link game", "chơi ở đâu"),
-        "Muốn chơi game của Cá thì tải ở đây nè:\n"
+        "Dự án của Cá hiện có 3 tựa game:\n"
+        "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
+        "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
+        "🐟 Bé Cá Heartopia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
+        "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
         "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
@@ -85,7 +89,11 @@ FAQ_QA = [
     ),
     (
         ("game gì", "game của cá", "có game nào"),
-        "Game của Cá có 3 game nè: Flappy Fish, Animal Crush và Bé Cá Heartopia — link tải ở đây:\n"
+        "Dự án của Cá hiện có 3 tựa game:\n"
+        "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
+        "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
+        "🐟 Bé Cá Heartopia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
+        "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
         "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
@@ -1370,16 +1378,16 @@ WELCOME_MARKER = "Chào mừng đến với Dự án của Cá"  # dấu nhận 
 WELCOME_EMBED_COLOR = 0xE91E63  # viền embed hồng nổi bật
 WELCOME_EMBED_TITLE = "👋 Chào mừng đến với Dự án của Cá!"
 WELCOME_EMBED_DESCRIPTION_TEMPLATE = (
-    "Đây là nhà của Cá — nơi Cá chia sẻ các game của mình: **Flappy Fish**, "
-    "**Animal Crush**, **Bé Cá Heartopia** — cập nhật mới, video, ảnh và link "
-    "game đều đăng ở đây hết!\n"
+    "Chào mừng đến với Dự án của Cá — nơi phát triển các tựa game "
+    "**Flappy Fish**, **Animal Crush** và **Bé Cá Heartopia**. Mọi thông tin "
+    "cập nhật, hình ảnh và liên kết tải game đều được đăng tải tại đây.\n"
     "\n"
-    "🎭 Chọn vai trò của bạn ở {role_pick} — bấm emoji là có role liền!\n"
-    "🎮 Coi game mới nhất của Cá ở {game}\n"
-    "💬 Vô tám chuyện cùng cả nhà ở {chung}\n"
-    "🐛 Chơi game thấy lỗi thì báo ở {bug} giúp Cá nha!"
+    "🎭 Chọn vai trò của bạn tại {role_pick} — bấm emoji để nhận role.\n"
+    "🎮 Xem game mới nhất tại {game}\n"
+    "💬 Trò chuyện cùng cộng đồng tại {chung}\n"
+    "🐛 Báo lỗi game tại {bug}"
 )
-WELCOME_EMBED_FOOTER = "Cứ tự nhiên như ở nhà, chơi vui nha! 🐶"
+WELCOME_EMBED_FOOTER = "Chúc bạn có trải nghiệm thú vị cùng Dự án của Cá!"
 
 
 def _welcome_channel_mention(guild, match):
@@ -1431,6 +1439,20 @@ def _welcome_has_gif(message):
     return _message_has_gif(message)
 
 
+def _welcome_embed_matches(msg, desired):
+    """Embed chào mừng hiện tại đã giống nội dung mới nhất chưa (so tiêu đề
+    + mô tả + chân) — giống rồi thì khỏi sửa."""
+    for emb in getattr(msg, "embeds", []) or []:
+        if WELCOME_MARKER not in (emb.title or ""):
+            continue
+        if (emb.description or "") != (desired.description or ""):
+            return False
+        old_footer = (emb.to_dict().get("footer") or {}).get("text", "")
+        new_footer = (desired.to_dict().get("footer") or {}).get("text", "")
+        return old_footer == new_footer
+    return False
+
+
 async def _welcome_ensure():
     """Đảm bảo tin chào mừng của bot có trong #👋・chào-mừng của server mới,
     kèm banner chào mừng. Chưa có tin thì đăng mới, có rồi mà còn ảnh cũ
@@ -1473,6 +1495,12 @@ async def _welcome_ensure():
                 msg, _welcome_build_embed(guild), image_path, "welcome"
             ):
                 print(f"welcome: đã đổi ảnh chào mừng sang banner (id {msg.id})")
+        elif not _welcome_embed_matches(msg, _welcome_build_embed(guild)):
+            # Ảnh đã đúng nhưng nội dung chữ cũ: sửa tại chỗ cho mới nhất.
+            if await _edit_to_embed_with_image(
+                msg, _welcome_build_embed(guild), image_path, "welcome"
+            ):
+                print(f"welcome: đã cập nhật nội dung tin chào mừng (id {msg.id})")
         else:
             print("welcome: tin chào mừng đã sẵn sàng")
     except discord.DiscordException as e:
@@ -1488,7 +1516,7 @@ ROADMAP_CHANNEL_MATCH = "roadmap"  # tìm kênh theo tên, đừng hardcode id
 ROADMAP_MARKER = "Lộ trình phát triển game của Cá"  # dấu nhận diện embed roadmap
 ROADMAP_EMBED_COLOR = 0x1ABC9C  # viền embed xanh ngọc
 ROADMAP_EMBED_TITLE = "🗺️ Lộ trình phát triển game của Cá"
-ROADMAP_EMBED_FOOTER = "Lộ trình do Cá Owner cập nhật — có gì mới Cá sửa lại ở đây!"
+ROADMAP_EMBED_FOOTER = "Lộ trình được cập nhật bởi Cá Owner."
 
 
 def _roadmap_build_embed(guild):
@@ -1497,13 +1525,13 @@ def _roadmap_build_embed(guild):
     không bịa thêm mốc nào."""
     embed = discord.Embed(
         title=ROADMAP_EMBED_TITLE,
-        description="Cá đang làm gì, sắp làm gì — coi ở đây là biết hết nè!",
+        description="Tiến độ phát triển các tựa game của Dự án của Cá.",
         color=ROADMAP_EMBED_COLOR,
     )
     embed.add_field(
         name="🐟 Flappy Fish",
         value=(
-            "✅ v2 đang chơi được: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html — bản ban đêm 🌙 + shop vỏ sò + thử thách ngày\n"
+            "✅ Phiên bản 2.0 đã ra mắt: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html — Chế độ đêm, Cửa hàng vỏ sò, Thử thách hằng ngày\n"
             "🔗 Bản xem trước v2: https://miatrann97-source.github.io/flappy-fish/flappy-fish-preview-v2.html"
         ),
         inline=False,
@@ -1511,17 +1539,17 @@ def _roadmap_build_embed(guild):
     embed.add_field(
         name="🍬 Animal Crush",
         value=(
-            "✅ v32.37 đang chơi được: https://miatrann97-source.github.io/animal-crush/ — 50 màn, boss Quái Kẹo Dẻo, truyện 16 chương\n"
-            f"⏳ Màn mới sẽ báo ở {_welcome_channel_mention(guild, 'cập-nhật')}"
+            "✅ Phiên bản 32.37 đã ra mắt: https://miatrann97-source.github.io/animal-crush/ — 50 màn chơi, boss Quái Kẹo Dẻo, cốt truyện 16 chương\n"
+            f"⏳ Màn chơi mới sẽ được thông báo tại {_welcome_channel_mention(guild, 'cập-nhật')}"
         ),
         inline=False,
     )
     embed.add_field(
         name="🐱 Saigonpia (game 3D Sài Gòn)",
         value=(
-            "✅ Bước 5 xong: map Sài Gòn — hẻm, 5 nhà, tiệm vẽ + trà sữa, chợ, kênh + cầu gỗ, vườn trên sân thượng, 5 NPC + Mimi\n"
-            "🔄 Đang chờ Cá quyết: thay bản demo đảo bằng map Sài Gòn không\n"
-            "⏳ Sau khi duyệt: build Windows + WebGL mới cho mọi người chơi thử"
+            "✅ Bước 5 hoàn thành: bản đồ Sài Gòn — hẻm, 5 ngôi nhà, tiệm vẽ tranh và trà sữa, chợ, kênh và cầu gỗ, vườn trên sân thượng, 5 NPC và Mimi\n"
+            "🔄 Đang chờ quyết định: thay bản demo đảo bằng bản đồ Sài Gòn\n"
+            "⏳ Sau khi phê duyệt: phát hành bản Windows và WebGL mới"
         ),
         inline=False,
     )
