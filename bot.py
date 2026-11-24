@@ -1498,8 +1498,8 @@ def _roadmap_build_embed(guild):
         name="🐟 Flappy Fish",
         value=(
             "✅ v1 đang chơi được: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
-            "🔄 v2: bản xem trước đang chờ Cá duyệt\n"
-            "⏳ Ra mắt v2 ngay sau khi Cá duyệt xong"
+            "✅ v2 (bản ban đêm 🌙 + shop vỏ sò + thử thách ngày) — Cá đã duyệt rồi\n"
+            "⏳ Sắp lên live thay bản v1"
         ),
         inline=False,
     )
