@@ -1035,9 +1035,10 @@ async def karaoke_loop():
 
 # --- Reaction role: chọn vai trò bằng emoji (chỉ server "Dự án của Cá") ---
 # An nhờ 2026-11-24: thành viên bấm emoji trong #🎭・chọn-role là nhận role
-# đó luôn, bấm lại lần nữa thì gỡ role. Không lưu file: mỗi lần khởi động,
-# bot quét lịch sử kênh để tìm lại tin chọn role của chính nó (file hệ thống
-# trên Railway có thể bị reset khi redeploy).
+# đó luôn, bấm lại lần nữa thì gỡ role. Tin chọn role là EMBED có khung viền
+# xanh + GIF bé nhảy (An nhờ làm nổi bật 2026-11-24). Không lưu file: mỗi lần
+# khởi động, bot quét lịch sử kênh để tìm lại tin chọn role của chính nó
+# (file hệ thống trên Railway có thể bị reset khi redeploy).
 ROLE_PICK_GUILD_ID = 1574828768860840128  # server mới "Dự án của Cá"
 ROLE_PICK_CHANNEL_MATCH = "chọn-role"  # tìm kênh theo tên, đừng hardcode id
 ROLE_PICK_EMOJI = {  # emoji -> tên role trong server mới
@@ -1046,28 +1047,106 @@ ROLE_PICK_EMOJI = {  # emoji -> tên role trong server mới
     "🧪": "Tester",
     "🎮": "Player",
 }
-ROLE_PICK_MARKER = "🎭 **Chọn vai trò của bạn"  # dấu nhận diện tin chọn role
-ROLE_PICK_MESSAGE = (
-    "🎭 **Chọn vai trò của bạn trong Dự án của Cá!** 🐟\n"
-    "\n"
-    "Bấm vào emoji tương ứng để nhận role, bấm lại lần nữa để gỡ role nha:\n"
-    "\n"
-    "🛠️ **Dev** — lập trình, code game cùng Cá\n"
-    "🎨 **Artist** — vẽ tranh, làm art cho game\n"
-    "🧪 **Tester** — chơi thử game, báo lỗi giúp Cá\n"
-    "🎮 **Player** — chơi game của Cá, tám chuyện cùng cả nhà\n"
-    "\n"
-    "Nhận role rồi thì ghé #🎮・game-của-cá coi game mới nhất của Cá nha! 🐶"
-)
+ROLE_PICK_MARKER = "Chọn vai trò của bạn trong Dự án của Cá"  # dấu nhận diện tin chọn role (tin text cũ lẫn embed mới)
+ROLE_PICK_EMBED_COLOR = 0x3498DB  # viền embed xanh dương, hợp tông server
+ROLE_PICK_GIF_PATH = "assets/pet/dance.gif"  # GIF bé cá nhảy múa (4 khung)
+ROLE_PICK_TITLE = "🎭 Chọn vai trò của bạn trong Dự án của Cá!"
+ROLE_PICK_DESCRIPTIONS = {  # tên role -> mô tả trong embed
+    "Dev": "Lập trình, code game cùng Cá",
+    "Artist": "Vẽ tranh, làm art cho game",
+    "Tester": "Chơi thử game, báo lỗi giúp Cá",
+    "Player": "Chơi game của Cá, tám chuyện cùng cả nhà",
+}
+
+
+def _embed_has_marker(msg, marker):
+    """Tin có chứa marker trong content (tin text cũ) hoặc trong tiêu đề /
+    mô tả của embed (tin embed mới) không."""
+    if marker in (msg.content or ""):
+        return True
+    for emb in getattr(msg, "embeds", []) or []:
+        if marker in (emb.title or "") or marker in (emb.description or ""):
+            return True
+    return False
+
+
+def _message_is_embed_with_marker(msg, marker):
+    """Tin đã là embed chứa marker chưa (để khỏi sửa lại tin embed có sẵn)."""
+    for emb in getattr(msg, "embeds", []) or []:
+        if marker in (emb.title or "") or marker in (emb.description or ""):
+            return True
+    return False
+
+
+def _message_has_gif(message):
+    """Tin đã đính kèm GIF động chưa."""
+    return any(
+        (a.filename or "").lower().endswith(".gif") for a in message.attachments
+    )
+
+
+async def _edit_to_embed_with_gif(msg, embed, gif_path, log_tag):
+    """Sửa một tin (thường là tin text cũ) thành embed kèm GIF bé nhảy.
+    Dùng lại file GIF đã đính kèm nếu có, không thì upload file mới.
+    Trả về True nếu sửa xong."""
+    try:
+        gif_att = next(
+            (a for a in msg.attachments if (a.filename or "").lower().endswith(".gif")),
+            None,
+        )
+        if gif_att is not None:
+            embed.set_image(url=gif_att.url)
+            await msg.edit(content=None, embed=embed, attachments=list(msg.attachments))
+        else:
+            embed.set_image(url="attachment://" + os.path.basename(gif_path))
+            await msg.edit(
+                content=None, embed=embed, attachments=[discord.File(gif_path)]
+            )
+        return True
+    except (OSError, ValueError) as e:
+        print(f"{log_tag}: không đọc được GIF {gif_path}: {e}")
+        try:  # dự phòng: embed không có ảnh vẫn hơn tin text cũ
+            await msg.edit(content=None, embed=embed)
+            return True
+        except discord.DiscordException as e2:
+            print(f"{log_tag}: không sửa được tin: {e2}")
+            return False
+    except discord.DiscordException as e:
+        print(f"{log_tag}: không sửa được tin: {e}")
+        return False
+
+
+def _role_pick_build_embed(guild):
+    """Dựng embed chọn role: khung viền xanh, mỗi role một field, GIF bé nhảy
+    làm ảnh trong khung (gắn lúc đăng/sửa)."""
+    embed = discord.Embed(
+        title=ROLE_PICK_TITLE,
+        description=(
+            "Bấm vào emoji tương ứng để nhận role, bấm lại lần nữa để gỡ role nha!\n"
+            "\n"
+            f"Nhận role rồi thì ghé {_welcome_channel_mention(guild, 'game-của-cá')} "
+            "coi game mới nhất của Cá nha! 🐶"
+        ),
+        color=ROLE_PICK_EMBED_COLOR,
+    )
+    for emoji, role_name in ROLE_PICK_EMOJI.items():
+        embed.add_field(
+            name=f"{emoji} {role_name}",
+            value=ROLE_PICK_DESCRIPTIONS[role_name],
+            inline=False,
+        )
+    embed.set_footer(text="Dự án của Cá 🐟 — bấm emoji là có role liền!")
+    return embed
 
 _role_pick_message_id = None  # id tin chọn role, chỉ lưu trong RAM
 
 
 async def _role_pick_find_message(channel):
-    """Quét lịch sử kênh, tìm tin chọn role do chính bot đăng."""
+    """Quét lịch sử kênh, tìm tin chọn role do chính bot đăng (tin text cũ
+    hoặc tin embed mới đều nhận diện được)."""
     try:
         async for msg in channel.history(limit=100):
-            if msg.author.id == client.user.id and ROLE_PICK_MARKER in msg.content:
+            if msg.author.id == client.user.id and _embed_has_marker(msg, ROLE_PICK_MARKER):
                 return msg
     except discord.DiscordException as e:
         print(f"role-pick: không quét được lịch sử kênh {channel.name}: {e}")
@@ -1094,8 +1173,20 @@ async def _role_pick_ensure():
     try:
         msg = await _role_pick_find_message(channel)
         if msg is None:
-            msg = await channel.send(ROLE_PICK_MESSAGE)
+            embed = _role_pick_build_embed(guild)
+            files = []
+            try:
+                files.append(discord.File(ROLE_PICK_GIF_PATH))
+                embed.set_image(url="attachment://" + os.path.basename(ROLE_PICK_GIF_PATH))
+            except (OSError, ValueError) as e:
+                print(f"role-pick: không đọc được GIF {ROLE_PICK_GIF_PATH}: {e}")
+            msg = await channel.send(embed=embed, files=files)
             print(f"role-pick: đã đăng tin chọn role mới (id {msg.id})")
+        elif not _message_is_embed_with_marker(msg, ROLE_PICK_MARKER):
+            if await _edit_to_embed_with_gif(
+                msg, _role_pick_build_embed(guild), ROLE_PICK_GIF_PATH, "role-pick"
+            ):
+                print(f"role-pick: đã đổi tin text cũ thành embed (id {msg.id})")
         _role_pick_message_id = msg.id
         msg = await channel.fetch_message(msg.id)  # làm mới danh sách reaction
         have = {str(r.emoji) for r in msg.reactions if r.me}
@@ -1172,15 +1263,17 @@ async def on_raw_reaction_remove(payload):
 
 # --- Tin chào mừng: bot tự đăng tin chào mừng kèm GIF bé nhảy ---
 # An nhờ 2026-11-24: thay tin chào mừng tĩnh (đăng bằng tài khoản An lúc
-# setup) bằng tin do chính bot tuất đăng, kèm GIF bé nhảy nhảy. Cùng kiểu
-# find-or-create như tin chọn role: quét lịch sử kênh để tìm tin của bot,
-# không lưu file. Tin tĩnh cũ parent sẽ tự xóa bằng trình duyệt.
+# setup) bằng tin do chính bot tuất đăng, kèm GIF bé nhảy nhảy. Tin chào mừng
+# là EMBED có khung viền hồng + GIF bé nhảy làm ảnh trong khung (An nhờ làm
+# nổi bật 2026-11-24). Cùng kiểu find-or-create như tin chọn role: quét lịch
+# sử kênh để tìm tin của bot, không lưu file. Tin tĩnh cũ parent sẽ tự xóa
+# bằng trình duyệt.
 WELCOME_CHANNEL_MATCH = "chào-mừng"  # tìm kênh theo tên, đừng hardcode id
 WELCOME_GIF_PATH = "assets/pet/dance.gif"  # GIF bé cá nhảy múa (4 khung)
-WELCOME_MARKER = "👋 **Chào mừng đến với Dự án của Cá!**"
-WELCOME_MESSAGE_TEMPLATE = (
-    "👋 **Chào mừng đến với Dự án của Cá!** 🐟\n"
-    "\n"
+WELCOME_MARKER = "Chào mừng đến với Dự án của Cá"  # dấu nhận diện (tin text cũ lẫn embed mới)
+WELCOME_EMBED_COLOR = 0xE91E63  # viền embed hồng nổi bật
+WELCOME_EMBED_TITLE = "👋 Chào mừng đến với Dự án của Cá!"
+WELCOME_EMBED_DESCRIPTION_TEMPLATE = (
     "Đây là nhà của Cá — nơi Cá chia sẻ các game của mình: **Flappy Fish**, "
     "**Animal Crush**, **Bé Cá Heartopia** — cập nhật mới, video, ảnh và link "
     "game đều đăng ở đây hết!\n"
@@ -1188,10 +1281,9 @@ WELCOME_MESSAGE_TEMPLATE = (
     "🎭 Chọn vai trò của bạn ở {role_pick} — bấm emoji là có role liền!\n"
     "🎮 Coi game mới nhất của Cá ở {game}\n"
     "💬 Vô tám chuyện cùng cả nhà ở {chung}\n"
-    "🐛 Chơi game thấy lỗi thì báo ở {bug} giúp Cá nha!\n"
-    "\n"
-    "Cứ tự nhiên như ở nhà, chơi vui nha! 🐶"
+    "🐛 Chơi game thấy lỗi thì báo ở {bug} giúp Cá nha!"
 )
+WELCOME_EMBED_FOOTER = "Cứ tự nhiên như ở nhà, chơi vui nha! 🐶"
 
 
 def _welcome_channel_mention(guild, match):
@@ -1202,21 +1294,27 @@ def _welcome_channel_mention(guild, match):
     return f"#{match}"
 
 
-def _welcome_build_message(guild):
-    """Dựng nội dung tin chào mừng, link kênh bấm được theo id thật."""
-    return WELCOME_MESSAGE_TEMPLATE.format(
-        role_pick=_welcome_channel_mention(guild, "chọn-role"),
-        game=_welcome_channel_mention(guild, "game-của-cá"),
-        chung=_welcome_channel_mention(guild, "chung"),
-        bug=_welcome_channel_mention(guild, "báo-lỗi"),
-    )
+def _welcome_build_embed(guild):
+    """Dựng embed chào mừng: khung viền hồng, link kênh bấm được theo id thật,
+    GIF bé nhảy làm ảnh trong khung (gắn lúc đăng/sửa)."""
+    return discord.Embed(
+        title=WELCOME_EMBED_TITLE,
+        description=WELCOME_EMBED_DESCRIPTION_TEMPLATE.format(
+            role_pick=_welcome_channel_mention(guild, "chọn-role"),
+            game=_welcome_channel_mention(guild, "game-của-cá"),
+            chung=_welcome_channel_mention(guild, "chung"),
+            bug=_welcome_channel_mention(guild, "báo-lỗi"),
+        ),
+        color=WELCOME_EMBED_COLOR,
+    ).set_footer(text=WELCOME_EMBED_FOOTER)
 
 
 async def _welcome_find_message(channel):
-    """Quét lịch sử kênh, tìm tin chào mừng do chính bot đăng."""
+    """Quét lịch sử kênh, tìm tin chào mừng do chính bot đăng (tin text cũ
+    hoặc tin embed mới đều nhận diện được)."""
     try:
         async for msg in channel.history(limit=100):
-            if msg.author.id == client.user.id and WELCOME_MARKER in msg.content:
+            if msg.author.id == client.user.id and _embed_has_marker(msg, WELCOME_MARKER):
                 return msg
     except discord.DiscordException as e:
         print(f"welcome: không quét được lịch sử kênh {channel.name}: {e}")
@@ -1225,9 +1323,7 @@ async def _welcome_find_message(channel):
 
 def _welcome_has_gif(message):
     """Tin đã đính kèm GIF động chưa."""
-    return any(
-        (a.filename or "").lower().endswith(".gif") for a in message.attachments
-    )
+    return _message_has_gif(message)
 
 
 async def _welcome_ensure():
@@ -1249,18 +1345,27 @@ async def _welcome_ensure():
     try:
         msg = await _welcome_find_message(channel)
         if msg is None:
+            embed = _welcome_build_embed(guild)
             files = []
             try:
                 files.append(discord.File(WELCOME_GIF_PATH))
+                embed.set_image(url="attachment://" + os.path.basename(WELCOME_GIF_PATH))
             except (OSError, ValueError) as e:
                 print(f"welcome: không đọc được GIF {WELCOME_GIF_PATH}: {e}")
-            msg = await channel.send(_welcome_build_message(guild), files=files)
+            msg = await channel.send(embed=embed, files=files)
             print(f"welcome: đã đăng tin chào mừng mới (id {msg.id})")
+        elif not _message_is_embed_with_marker(msg, WELCOME_MARKER):
+            if await _edit_to_embed_with_gif(
+                msg, _welcome_build_embed(guild), WELCOME_GIF_PATH, "welcome"
+            ):
+                print(f"welcome: đã đổi tin text cũ thành embed (id {msg.id})")
         elif not _welcome_has_gif(msg):
+            # Đã là embed nhưng thiếu GIF: đính kèm lại, giữ nguyên embed cũ.
             try:
+                embed = msg.embeds[0]
+                embed.set_image(url="attachment://dance.gif")
                 await msg.edit(
-                    content=msg.content,
-                    attachments=[discord.File(WELCOME_GIF_PATH)],
+                    embed=embed, attachments=[discord.File(WELCOME_GIF_PATH)]
                 )
                 print(f"welcome: đã đính kèm GIF vào tin chào mừng (id {msg.id})")
             except (OSError, ValueError) as e:
