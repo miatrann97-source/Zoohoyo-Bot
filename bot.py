@@ -57,6 +57,42 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 for _n in ("discord.voice_client", "discord.player", "discord.voice_state", "discord.gateway"):
     logging.getLogger(_n).setLevel(logging.DEBUG)
 
+# --- FAQ tự trả lời (server mới "Dự án của Cá", không dùng AI) ---
+# Mỗi mục: (tuple từ khóa, câu trả lời). Bot khớp từ khóa theo thứ tự
+# trong danh sách — một tin nhắn chỉ trả lời tối đa 1 mục (mục khớp đầu
+# tiên). {role_pick} / {bug} / {idea} được thay bằng mention kênh thật
+# lúc trả lời. Muốn thêm/sửa câu hỏi thì sửa ở đây là xong.
+FAQ_QA = [
+    (
+        ("tải game", "tải ở đâu", "download", "link game", "chơi ở đâu"),
+        "Muốn chơi game của Cá thì tải ở đây nè:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
+        "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
+    ),
+    (
+        ("báo lỗi", "lỗi", "bug"),
+        "Chơi game thấy lỗi thì báo ở {bug} giúp Cá nha — ghi rõ tên game + "
+        "mô tả lỗi + ảnh chụp màn hình nếu có.",
+    ),
+    (
+        ("lấy role", "nhận role", "role"),
+        "Vô {role_pick} bấm emoji để nhận role Dev / Artist / Tester / Player nha!",
+    ),
+    (
+        ("góp ý", "ý tưởng"),
+        "Có góp ý hay ý tưởng mới thì đăng ở {idea} giúp Cá nha!",
+    ),
+    (
+        ("game gì", "game của cá", "có game nào"),
+        "Game của Cá có 3 game nè: Flappy Fish, Animal Crush và Bé Cá Heartopia — link tải ở đây:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
+        "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
+    ),
+]
+FAQ_COOLDOWN_SECONDS = 60  # mỗi người mỗi mục FAQ chỉ trả lời 1 lần trong 60 giây
+
 # --- FIX DAVE 14:41 PST 2026-11-06: discord.py 2.7.1 không bao giờ gọi
 # dave_session.prepare_transition() / execute_transition() nên session DAVE
 # không bao giờ ready (dave_proto=1, dave_ready=False, can_encrypt=False) và
@@ -1085,26 +1121,60 @@ def _message_has_gif(message):
     )
 
 
-async def _edit_to_embed_with_gif(msg, embed, gif_path, log_tag):
-    """Sửa một tin (thường là tin text cũ) thành embed kèm GIF bé nhảy.
-    Dùng lại file GIF đã đính kèm nếu có, không thì upload file mới.
+def _message_uses_image(msg, image_path):
+    """Tin đã dùng đúng file ảnh này làm ảnh embed chưa (kiểm cả file đính
+    kèm lẫn URL ảnh trong embed, vì Discord đổi attachment:// thành URL CDN
+    sau khi đăng)."""
+    name = os.path.basename(image_path).lower()
+    for a in getattr(msg, "attachments", []) or []:
+        if (a.filename or "").lower() == name:
+            return True
+    for emb in getattr(msg, "embeds", []) or []:
+        image = getattr(emb, "image", None)
+        url = (image.url or "") if image is not None else ""
+        if url.lower().endswith(name):
+            return True
+    return False
+
+
+def _message_ready_for_image(msg, image_path):
+    """Tin đã dùng đúng ảnh và không còn file đính kèm thừa nào chưa."""
+    if not _message_uses_image(msg, image_path):
+        return False
+    name = os.path.basename(image_path).lower()
+    return not any(
+        (a.filename or "").lower() != name
+        for a in getattr(msg, "attachments", []) or []
+    )
+
+
+async def _edit_to_embed_with_image(msg, embed, image_path, log_tag):
+    """Sửa một tin (thường là tin text cũ) thành embed kèm ảnh.
+    - Nếu tin đã có sẵn file ảnh cần dùng thì dùng lại file đó (không
+      upload lại), nhưng vẫn chỉ truyền đúng 1 file đó trong attachments
+      để các file cũ khác (vd GIF cũ) bị gỡ khỏi tin.
+    - Ảnh trong embed luôn trỏ bằng attachment://<tên file> để Discord ẩn
+      file đính kèm khỏi danh sách file rời. Trỏ bằng URL CDN thì file vẫn
+      hiện rời bên dưới — đó là lỗi trùng file ở bản v2.
     Trả về True nếu sửa xong."""
     try:
-        gif_att = next(
-            (a for a in msg.attachments if (a.filename or "").lower().endswith(".gif")),
+        name = os.path.basename(image_path)
+        existing = next(
+            (a for a in msg.attachments if (a.filename or "") == name),
             None,
         )
-        if gif_att is not None:
-            embed.set_image(url=gif_att.url)
-            await msg.edit(content=None, embed=embed, attachments=list(msg.attachments))
+        if existing is not None:
+            embed.set_image(url="attachment://" + name)
+            await msg.edit(content=None, embed=embed, attachments=[existing])
         else:
-            embed.set_image(url="attachment://" + os.path.basename(gif_path))
-            await msg.edit(
-                content=None, embed=embed, attachments=[discord.File(gif_path)]
-            )
+            # Mở file trước khi gắn vào embed: thiếu file thì rớt xuống
+            # nhánh dự phòng bên dưới, embed vẫn đăng được (không có ảnh).
+            file = discord.File(image_path)
+            embed.set_image(url="attachment://" + name)
+            await msg.edit(content=None, embed=embed, attachments=[file])
         return True
     except (OSError, ValueError) as e:
-        print(f"{log_tag}: không đọc được GIF {gif_path}: {e}")
+        print(f"{log_tag}: không đọc được ảnh {image_path}: {e}")
         try:  # dự phòng: embed không có ảnh vẫn hơn tin text cũ
             await msg.edit(content=None, embed=embed)
             return True
@@ -1183,10 +1253,17 @@ async def _role_pick_ensure():
             msg = await channel.send(embed=embed, files=files)
             print(f"role-pick: đã đăng tin chọn role mới (id {msg.id})")
         elif not _message_is_embed_with_marker(msg, ROLE_PICK_MARKER):
-            if await _edit_to_embed_with_gif(
+            if await _edit_to_embed_with_image(
                 msg, _role_pick_build_embed(guild), ROLE_PICK_GIF_PATH, "role-pick"
             ):
                 print(f"role-pick: đã đổi tin text cũ thành embed (id {msg.id})")
+        elif not _message_ready_for_image(msg, ROLE_PICK_GIF_PATH):
+            # Đã là embed nhưng còn ảnh cũ hoặc file đính kèm thừa (vd đổi
+            # sang GIF mới sau này): sửa lại để đổi ảnh và gỡ file thừa.
+            if await _edit_to_embed_with_image(
+                msg, _role_pick_build_embed(guild), ROLE_PICK_GIF_PATH, "role-pick"
+            ):
+                print(f"role-pick: đã đổi ảnh tin chọn role (id {msg.id})")
         _role_pick_message_id = msg.id
         msg = await channel.fetch_message(msg.id)  # làm mới danh sách reaction
         have = {str(r.emoji) for r in msg.reactions if r.me}
@@ -1269,7 +1346,8 @@ async def on_raw_reaction_remove(payload):
 # sử kênh để tìm tin của bot, không lưu file. Tin tĩnh cũ parent sẽ tự xóa
 # bằng trình duyệt.
 WELCOME_CHANNEL_MATCH = "chào-mừng"  # tìm kênh theo tên, đừng hardcode id
-WELCOME_GIF_PATH = "assets/pet/dance.gif"  # GIF bé cá nhảy múa (4 khung)
+WELCOME_IMAGE_PATH = "assets/welcome-banner.webp"  # banner chào mừng: bé cá vẫy tay + chữ "Chào mừng đến với Dự án của Cá!"
+WELCOME_GIF_PATH = "assets/pet/dance.gif"  # GIF bé cá nhảy múa (4 khung) — dự phòng khi thiếu banner
 WELCOME_MARKER = "Chào mừng đến với Dự án của Cá"  # dấu nhận diện (tin text cũ lẫn embed mới)
 WELCOME_EMBED_COLOR = 0xE91E63  # viền embed hồng nổi bật
 WELCOME_EMBED_TITLE = "👋 Chào mừng đến với Dự án của Cá!"
@@ -1294,9 +1372,18 @@ def _welcome_channel_mention(guild, match):
     return f"#{match}"
 
 
+def _welcome_desired_image_path():
+    """Đường dẫn ảnh embed chào mừng: banner mới, thiếu file thì về lại
+    dance.gif như cũ (chỉ log, không crash)."""
+    if os.path.exists(WELCOME_IMAGE_PATH):
+        return WELCOME_IMAGE_PATH
+    print(f"welcome: không thấy banner {WELCOME_IMAGE_PATH}, dùng lại {WELCOME_GIF_PATH}")
+    return WELCOME_GIF_PATH
+
+
 def _welcome_build_embed(guild):
     """Dựng embed chào mừng: khung viền hồng, link kênh bấm được theo id thật,
-    GIF bé nhảy làm ảnh trong khung (gắn lúc đăng/sửa)."""
+    banner chào mừng làm ảnh trong khung (gắn lúc đăng/sửa)."""
     return discord.Embed(
         title=WELCOME_EMBED_TITLE,
         description=WELCOME_EMBED_DESCRIPTION_TEMPLATE.format(
@@ -1328,8 +1415,9 @@ def _welcome_has_gif(message):
 
 async def _welcome_ensure():
     """Đảm bảo tin chào mừng của bot có trong #👋・chào-mừng của server mới,
-    kèm GIF bé nhảy. Chưa có tin thì đăng mới, có rồi mà thiếu GIF thì sửa
-    để đính kèm GIF. Lỗi thì chỉ in log, không làm bot chết."""
+    kèm banner chào mừng. Chưa có tin thì đăng mới, có rồi mà còn ảnh cũ
+    (dance.gif) hoặc file đính kèm thừa thì sửa lại để đổi sang banner và
+    gỡ file thừa. Lỗi thì chỉ in log, không làm bot chết."""
     guild = client.get_guild(ROLE_PICK_GUILD_ID)
     if guild is None:
         print("welcome: không thấy server Dự án của Cá, bỏ qua")
@@ -1344,34 +1432,29 @@ async def _welcome_ensure():
         return
     try:
         msg = await _welcome_find_message(channel)
+        image_path = _welcome_desired_image_path()
         if msg is None:
             embed = _welcome_build_embed(guild)
             files = []
             try:
-                files.append(discord.File(WELCOME_GIF_PATH))
-                embed.set_image(url="attachment://" + os.path.basename(WELCOME_GIF_PATH))
+                files.append(discord.File(image_path))
+                embed.set_image(url="attachment://" + os.path.basename(image_path))
             except (OSError, ValueError) as e:
-                print(f"welcome: không đọc được GIF {WELCOME_GIF_PATH}: {e}")
+                print(f"welcome: không đọc được ảnh {image_path}: {e}")
             msg = await channel.send(embed=embed, files=files)
             print(f"welcome: đã đăng tin chào mừng mới (id {msg.id})")
         elif not _message_is_embed_with_marker(msg, WELCOME_MARKER):
-            if await _edit_to_embed_with_gif(
-                msg, _welcome_build_embed(guild), WELCOME_GIF_PATH, "welcome"
+            if await _edit_to_embed_with_image(
+                msg, _welcome_build_embed(guild), image_path, "welcome"
             ):
                 print(f"welcome: đã đổi tin text cũ thành embed (id {msg.id})")
-        elif not _welcome_has_gif(msg):
-            # Đã là embed nhưng thiếu GIF: đính kèm lại, giữ nguyên embed cũ.
-            try:
-                embed = msg.embeds[0]
-                embed.set_image(url="attachment://dance.gif")
-                await msg.edit(
-                    embed=embed, attachments=[discord.File(WELCOME_GIF_PATH)]
-                )
-                print(f"welcome: đã đính kèm GIF vào tin chào mừng (id {msg.id})")
-            except (OSError, ValueError) as e:
-                print(f"welcome: không đọc được GIF {WELCOME_GIF_PATH}: {e}")
-            except discord.DiscordException as e:
-                print(f"welcome: không sửa được tin chào mừng: {e}")
+        elif not _message_ready_for_image(msg, image_path):
+            # Đã là embed nhưng còn ảnh cũ (dance.gif) hoặc file đính kèm
+            # thừa: sửa lại để đổi sang banner và gỡ file thừa.
+            if await _edit_to_embed_with_image(
+                msg, _welcome_build_embed(guild), image_path, "welcome"
+            ):
+                print(f"welcome: đã đổi ảnh chào mừng sang banner (id {msg.id})")
         else:
             print("welcome: tin chào mừng đã sẵn sàng")
     except discord.DiscordException as e:
@@ -1946,6 +2029,55 @@ async def _maybe_reembed(message):
         print("reembed reply failed:", e)
 
 
+_faq_last_reply = {}  # (user_id, chỉ số mục FAQ) -> thời điểm trả lời gần nhất (monotonic)
+
+
+def _faq_match_index(content):
+    """Tìm mục FAQ khớp đầu tiên (theo thứ tự FAQ_QA), trả về chỉ số hoặc None."""
+    text = (content or "").lower()
+    for index, (keywords, _answer) in enumerate(FAQ_QA):
+        for keyword in keywords:
+            if keyword in text:
+                return index
+    return None
+
+
+async def _faq_maybe_reply(message):
+    """Trả lời câu hỏi thường gặp bằng khớp từ khóa (không dùng AI).
+    Chỉ chạy trong server mới "Dự án của Cá", bỏ qua tin của bot, tin bắt
+    đầu bằng "/" hoặc "!", và DM. Trả về True nếu đã trả lời. Không chặn
+    các flow khác của on_message (nối từ, chào, reembed) — hàm này chỉ gửi
+    thêm một tin trả lời rồi thôi. Tin bot tự trả lời không tự kích hoạt
+    lại chính nó vì on_message đã bỏ qua tin của bot ngay từ đầu."""
+    if message.author.bot or message.guild is None:
+        return False
+    if message.guild.id != ROLE_PICK_GUILD_ID:
+        return False
+    content = message.content or ""
+    if content.startswith(("/", "!")):
+        return False
+    index = _faq_match_index(content)
+    if index is None:
+        return False
+    now = time.monotonic()
+    key = (message.author.id, index)
+    if now - _faq_last_reply.get(key, 0) < FAQ_COOLDOWN_SECONDS:
+        return False
+    _faq_last_reply[key] = now
+    _keywords, answer = FAQ_QA[index]
+    reply = answer.format(
+        role_pick=_welcome_channel_mention(message.guild, "chọn-role"),
+        bug=_welcome_channel_mention(message.guild, "báo-lỗi"),
+        idea=_welcome_channel_mention(message.guild, "ý-tưởng"),
+    )
+    try:
+        await message.reply(reply)
+    except discord.DiscordException as e:
+        print(f"faq: không trả lời được tin của {message.author.id}: {e}")
+        return False
+    return True
+
+
 @client.event
 async def on_message(message):
     if message.author.bot:
@@ -1957,6 +2089,9 @@ async def on_message(message):
     if message.channel.id == DUA_NGUA_CHANNEL_ID:
         await _maybe_reembed(message)
         return
+    # FAQ tự trả lời (chỉ server mới): khớp từ khóa thì trả lời thêm một
+    # tin, không chặn flow nối từ bên dưới.
+    await _faq_maybe_reply(message)
     if message.channel.id != WORDCHAIN_CHANNEL_ID:
         return
     text = _norm(message.content)
