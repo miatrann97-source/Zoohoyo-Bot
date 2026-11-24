@@ -1741,19 +1741,6 @@ LEGACY_TEXT_FIXES = [
         FAQ_QA[0][1],  # bản liệt kê game chuyên nghiệp đã duyệt
     ),
     (
-        "giới-thiệu",  # kênh #👋・giới-thiệu — tin ghim mẫu giới thiệu cũ
-        "👋 Chào mừng! Giới thiệu xíu nè:\n"
-        "▸ Tên bạn là gì?\n"
-        "▸ Thích game nào của Cá nhất?\n"
-        "▸ Bạn tới từ đâu?\n"
-        "Cứ viết vài dòng là được, cả nhà làm quen với nhau nhen! 💙🐟",
-        "👋 Chào mừng! Hãy giới thiệu về bạn:\n"
-        "▸ Tên bạn là gì?\n"
-        "▸ Bạn thích tựa game nào nhất?\n"
-        "▸ Bạn đến từ đâu?\n"
-        "Viết vài dòng để mọi người làm quen với nhau.",
-    ),
-    (
         "hỏi-đáp",  # kênh #🙋・hỏi-đáp — tin trả lời cũ 10:42
         "Muốn chơi game của Cá thì tải ở đây nè:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
@@ -1794,6 +1781,72 @@ async def _legacy_text_ensure():
             print(f"legacy-text: không quét được lịch sử kênh {channel.name}: {e}")
 
 
+# --- Mẫu giới thiệu thành viên mới (#👋・giới-thiệu) ---
+# Tin mẫu cũ do TÀI KHOẢN AN đăng lúc 10:33 24/11 nên bot không sửa được
+# (bot chỉ sửa được tin của chính nó). An duyệt 12:14 24/11: bot XOÁ tin cũ
+# đó rồi ĐĂNG LẠI bản mới bằng tài khoản Cá Owner, ghim lại như cũ — cho
+# đúng luật mọi tin trong server đều do bot đăng.
+INTRO_TEMPLATE_CHANNEL_MATCH = "giới-thiệu"
+INTRO_TEMPLATE_OLD_TEXT = (
+    "👋 Chào mừng! Giới thiệu xíu nè:\n"
+    "▸ Tên bạn là gì?\n"
+    "▸ Thích game nào của Cá nhất?\n"
+    "▸ Bạn tới từ đâu?\n"
+    "Cứ viết vài dòng là được, cả nhà làm quen với nhau nhen! 💙🐟"
+)
+INTRO_TEMPLATE_TEXT = (
+    "👋 Chào mừng! Hãy giới thiệu về bạn:\n"
+    "▸ Tên bạn là gì?\n"
+    "▸ Bạn thích tựa game nào nhất?\n"
+    "▸ Bạn đến từ đâu?\n"
+    "Viết vài dòng để mọi người làm quen với nhau."
+)
+
+
+async def _intro_template_ensure():
+    """Đảm bảo mẫu giới thiệu trong #👋・giới-thiệu là bản mới do bot đăng
+    và đã ghim. Chưa có tin của bot thì đăng mới + ghim; tin cũ của An còn
+    đó thì xoá đi (cần quyền Manage Messages — thiếu quyền thì chỉ in log,
+    lần sau thử lại). Chạy mỗi lần khởi động, đã xong rồi thì không làm
+    lại. Lỗi thì chỉ in log, không làm bot chết."""
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("intro-template: không thấy server Dự án của Cá, bỏ qua")
+        return
+    channel = None
+    for ch in guild.text_channels:
+        if INTRO_TEMPLATE_CHANNEL_MATCH in ch.name:
+            channel = ch
+            break
+    if channel is None:
+        print("intro-template: không tìm thấy kênh giới-thiệu")
+        return
+    try:
+        bot_msg = None
+        old_msgs = []
+        async for msg in channel.history(limit=100):
+            if (msg.content or "") == INTRO_TEMPLATE_TEXT and msg.author.id == client.user.id:
+                bot_msg = msg
+            elif (msg.content or "") == INTRO_TEMPLATE_OLD_TEXT and msg.author.id != client.user.id:
+                old_msgs.append(msg)
+        if bot_msg is None:
+            bot_msg = await channel.send(INTRO_TEMPLATE_TEXT)
+            print(f"intro-template: đã đăng mẫu giới thiệu mới (id {bot_msg.id})")
+            try:
+                await bot_msg.pin()
+                print("intro-template: đã ghim mẫu giới thiệu mới")
+            except discord.DiscordException as e:
+                print(f"intro-template: không ghim được mẫu mới: {e}")
+        for old in old_msgs:
+            try:
+                await old.delete()
+                print(f"intro-template: đã xoá tin mẫu cũ (id {old.id})")
+            except discord.DiscordException as e:
+                print(f"intro-template: không xoá được tin mẫu cũ (id {old.id}): {e}")
+    except discord.DiscordException as e:
+        print(f"intro-template: lỗi khi chuẩn bị mẫu giới thiệu: {e}")
+
+
 @client.event
 async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
@@ -1824,6 +1877,10 @@ async def on_ready():
         await _legacy_text_ensure()
     except Exception as e:
         print(f"legacy-text: sửa tin cũ thất bại: {e!r}")
+    try:
+        await _intro_template_ensure()
+    except Exception as e:
+        print(f"intro-template: chuẩn bị mẫu giới thiệu thất bại: {e!r}")
     if not update_board_loop.is_running():
         update_board_loop.start()
     if not daily_quote_prompt_loop.is_running():
