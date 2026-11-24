@@ -1032,6 +1032,247 @@ async def karaoke_loop():
             pass
 
 
+
+# --- Reaction role: chọn vai trò bằng emoji (chỉ server "Dự án của Cá") ---
+# An nhờ 2026-11-24: thành viên bấm emoji trong #🎭・chọn-role là nhận role
+# đó luôn, bấm lại lần nữa thì gỡ role. Không lưu file: mỗi lần khởi động,
+# bot quét lịch sử kênh để tìm lại tin chọn role của chính nó (file hệ thống
+# trên Railway có thể bị reset khi redeploy).
+ROLE_PICK_GUILD_ID = 1574828768860840128  # server mới "Dự án của Cá"
+ROLE_PICK_CHANNEL_MATCH = "chọn-role"  # tìm kênh theo tên, đừng hardcode id
+ROLE_PICK_EMOJI = {  # emoji -> tên role trong server mới
+    "🛠️": "Dev",
+    "🎨": "Artist",
+    "🧪": "Tester",
+    "🎮": "Player",
+}
+ROLE_PICK_MARKER = "🎭 **Chọn vai trò của bạn"  # dấu nhận diện tin chọn role
+ROLE_PICK_MESSAGE = (
+    "🎭 **Chọn vai trò của bạn trong Dự án của Cá!** 🐟\n"
+    "\n"
+    "Bấm vào emoji tương ứng để nhận role, bấm lại lần nữa để gỡ role nha:\n"
+    "\n"
+    "🛠️ **Dev** — lập trình, code game cùng Cá\n"
+    "🎨 **Artist** — vẽ tranh, làm art cho game\n"
+    "🧪 **Tester** — chơi thử game, báo lỗi giúp Cá\n"
+    "🎮 **Player** — chơi game của Cá, tám chuyện cùng cả nhà\n"
+    "\n"
+    "Nhận role rồi thì ghé #🎮・game-của-cá coi game mới nhất của Cá nha! 🐶"
+)
+
+_role_pick_message_id = None  # id tin chọn role, chỉ lưu trong RAM
+
+
+async def _role_pick_find_message(channel):
+    """Quét lịch sử kênh, tìm tin chọn role do chính bot đăng."""
+    try:
+        async for msg in channel.history(limit=100):
+            if msg.author.id == client.user.id and ROLE_PICK_MARKER in msg.content:
+                return msg
+    except discord.DiscordException as e:
+        print(f"role-pick: không quét được lịch sử kênh {channel.name}: {e}")
+    return None
+
+
+async def _role_pick_ensure():
+    """Đảm bảo tin chọn role có trong #🎭・chọn-role của server mới và đủ 4
+    emoji reaction. Chưa có tin thì đăng mới, có rồi thì chỉ thêm reaction
+    còn thiếu. Lỗi thì chỉ in log, không làm bot chết."""
+    global _role_pick_message_id
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("role-pick: không thấy server Dự án của Cá, bỏ qua")
+        return
+    channel = None
+    for ch in guild.text_channels:
+        if ROLE_PICK_CHANNEL_MATCH in ch.name:
+            channel = ch
+            break
+    if channel is None:
+        print("role-pick: không tìm thấy kênh chọn-role trong server mới")
+        return
+    try:
+        msg = await _role_pick_find_message(channel)
+        if msg is None:
+            msg = await channel.send(ROLE_PICK_MESSAGE)
+            print(f"role-pick: đã đăng tin chọn role mới (id {msg.id})")
+        _role_pick_message_id = msg.id
+        msg = await channel.fetch_message(msg.id)  # làm mới danh sách reaction
+        have = {str(r.emoji) for r in msg.reactions if r.me}
+        for emoji in ROLE_PICK_EMOJI:
+            if emoji in have:
+                continue
+            try:
+                await msg.add_reaction(emoji)
+            except discord.DiscordException as e:
+                print(f"role-pick: không thêm được reaction {emoji}: {e}")
+        print("role-pick: tin chọn role đã sẵn sàng")
+    except discord.DiscordException as e:
+        print(f"role-pick: lỗi khi chuẩn bị tin chọn role: {e}")
+
+
+async def _role_pick_handle_reaction(payload, add):
+    """Xử lý bấm/gỡ emoji trên tin chọn role: thêm hoặc gỡ role tương ứng."""
+    global _role_pick_message_id
+    if payload.guild_id != ROLE_PICK_GUILD_ID:
+        return  # chỉ làm trong server mới "Dự án của Cá"
+    if payload.user_id == client.user.id:
+        return  # bỏ qua reaction của chính bot
+    role_name = ROLE_PICK_EMOJI.get(str(payload.emoji))
+    if role_name is None:
+        return  # emoji khác, không phải emoji chọn role
+    guild = client.get_guild(payload.guild_id)
+    if guild is None:
+        return
+    # Chỉ xử lý đúng tin chọn role (dùng id đã lưu trong RAM, chưa có thì quét)
+    message_id = _role_pick_message_id
+    if message_id is None:
+        channel = guild.get_channel(payload.channel_id) or client.get_channel(
+            payload.channel_id
+        )
+        if channel is None:
+            return
+        msg = await _role_pick_find_message(channel)
+        if msg is None:
+            return
+        message_id = msg.id
+        _role_pick_message_id = msg.id
+    if payload.message_id != message_id:
+        return
+    role = discord.utils.get(guild.roles, name=role_name)
+    if role is None:
+        print(f"role-pick: không tìm thấy role {role_name} trong server mới")
+        return
+    try:
+        member = await guild.fetch_member(payload.user_id)
+    except discord.DiscordException as e:
+        print(f"role-pick: không lấy được member {payload.user_id}: {e}")
+        return
+    try:
+        if add:
+            await member.add_roles(role, reason="Chọn role bằng emoji")
+            print(f"role-pick: đã thêm role {role_name} cho {member}")
+        else:
+            await member.remove_roles(role, reason="Gỡ role bằng emoji")
+            print(f"role-pick: đã gỡ role {role_name} của {member}")
+    except discord.DiscordException as e:
+        print(f"role-pick: không {'thêm' if add else 'gỡ'} được role {role_name} cho {member}: {e}")
+
+
+@client.event
+async def on_raw_reaction_add(payload):
+    await _role_pick_handle_reaction(payload, add=True)
+
+
+@client.event
+async def on_raw_reaction_remove(payload):
+    await _role_pick_handle_reaction(payload, add=False)
+
+
+
+# --- Tin chào mừng: bot tự đăng tin chào mừng kèm GIF bé nhảy ---
+# An nhờ 2026-11-24: thay tin chào mừng tĩnh (đăng bằng tài khoản An lúc
+# setup) bằng tin do chính bot tuất đăng, kèm GIF bé nhảy nhảy. Cùng kiểu
+# find-or-create như tin chọn role: quét lịch sử kênh để tìm tin của bot,
+# không lưu file. Tin tĩnh cũ parent sẽ tự xóa bằng trình duyệt.
+WELCOME_CHANNEL_MATCH = "chào-mừng"  # tìm kênh theo tên, đừng hardcode id
+WELCOME_GIF_PATH = "assets/pet/dance.gif"  # GIF bé cá nhảy múa (4 khung)
+WELCOME_MARKER = "👋 **Chào mừng đến với Dự án của Cá!**"
+WELCOME_MESSAGE_TEMPLATE = (
+    "👋 **Chào mừng đến với Dự án của Cá!** 🐟\n"
+    "\n"
+    "Đây là nhà của Cá — nơi Cá chia sẻ các game của mình: **Flappy Fish**, "
+    "**Animal Crush**, **Bé Cá Heartopia** — cập nhật mới, video, ảnh và link "
+    "game đều đăng ở đây hết!\n"
+    "\n"
+    "🎭 Chọn vai trò của bạn ở {role_pick} — bấm emoji là có role liền!\n"
+    "🎮 Coi game mới nhất của Cá ở {game}\n"
+    "💬 Vô tám chuyện cùng cả nhà ở {chung}\n"
+    "🐛 Chơi game thấy lỗi thì báo ở {bug} giúp Cá nha!\n"
+    "\n"
+    "Cứ tự nhiên như ở nhà, chơi vui nha! 🐶"
+)
+
+
+def _welcome_channel_mention(guild, match):
+    """Tìm kênh theo tên trong server, trả về mention bấm được (<#id>)."""
+    for ch in guild.text_channels:
+        if match in ch.name:
+            return ch.mention
+    return f"#{match}"
+
+
+def _welcome_build_message(guild):
+    """Dựng nội dung tin chào mừng, link kênh bấm được theo id thật."""
+    return WELCOME_MESSAGE_TEMPLATE.format(
+        role_pick=_welcome_channel_mention(guild, "chọn-role"),
+        game=_welcome_channel_mention(guild, "game-của-cá"),
+        chung=_welcome_channel_mention(guild, "chung"),
+        bug=_welcome_channel_mention(guild, "báo-lỗi"),
+    )
+
+
+async def _welcome_find_message(channel):
+    """Quét lịch sử kênh, tìm tin chào mừng do chính bot đăng."""
+    try:
+        async for msg in channel.history(limit=100):
+            if msg.author.id == client.user.id and WELCOME_MARKER in msg.content:
+                return msg
+    except discord.DiscordException as e:
+        print(f"welcome: không quét được lịch sử kênh {channel.name}: {e}")
+    return None
+
+
+def _welcome_has_gif(message):
+    """Tin đã đính kèm GIF động chưa."""
+    return any(
+        (a.filename or "").lower().endswith(".gif") for a in message.attachments
+    )
+
+
+async def _welcome_ensure():
+    """Đảm bảo tin chào mừng của bot có trong #👋・chào-mừng của server mới,
+    kèm GIF bé nhảy. Chưa có tin thì đăng mới, có rồi mà thiếu GIF thì sửa
+    để đính kèm GIF. Lỗi thì chỉ in log, không làm bot chết."""
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("welcome: không thấy server Dự án của Cá, bỏ qua")
+        return
+    channel = None
+    for ch in guild.text_channels:
+        if WELCOME_CHANNEL_MATCH in ch.name:
+            channel = ch
+            break
+    if channel is None:
+        print("welcome: không tìm thấy kênh chào-mừng trong server mới")
+        return
+    try:
+        msg = await _welcome_find_message(channel)
+        if msg is None:
+            files = []
+            try:
+                files.append(discord.File(WELCOME_GIF_PATH))
+            except (OSError, ValueError) as e:
+                print(f"welcome: không đọc được GIF {WELCOME_GIF_PATH}: {e}")
+            msg = await channel.send(_welcome_build_message(guild), files=files)
+            print(f"welcome: đã đăng tin chào mừng mới (id {msg.id})")
+        elif not _welcome_has_gif(msg):
+            try:
+                await msg.edit(
+                    content=msg.content,
+                    attachments=[discord.File(WELCOME_GIF_PATH)],
+                )
+                print(f"welcome: đã đính kèm GIF vào tin chào mừng (id {msg.id})")
+            except (OSError, ValueError) as e:
+                print(f"welcome: không đọc được GIF {WELCOME_GIF_PATH}: {e}")
+            except discord.DiscordException as e:
+                print(f"welcome: không sửa được tin chào mừng: {e}")
+        else:
+            print("welcome: tin chào mừng đã sẵn sàng")
+    except discord.DiscordException as e:
+        print(f"welcome: lỗi khi chuẩn bị tin chào mừng: {e}")
+
+
 @client.event
 async def on_ready():
     print(f"Đã đăng nhập: {client.user} (id: {client.user.id})")
@@ -1042,6 +1283,14 @@ async def on_ready():
         print(f"pet: khởi tạo game nuôi bé thất bại: {e!r}")
     await update_board_once()
     await update_lore_embeds_once()
+    try:
+        await _role_pick_ensure()
+    except Exception as e:
+        print(f"role-pick: khởi tạo tin chọn role thất bại: {e!r}")
+    try:
+        await _welcome_ensure()
+    except Exception as e:
+        print(f"welcome: khởi tạo tin chào mừng thất bại: {e!r}")
     if not update_board_loop.is_running():
         update_board_loop.start()
     if not daily_quote_prompt_loop.is_running():
