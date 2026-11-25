@@ -1374,8 +1374,7 @@ WELCOME_MARKER = "Chào mừng đến với Dự án của Cá"  # dấu nhận 
 WELCOME_EMBED_COLOR = 0xE91E63  # viền embed hồng nổi bật
 WELCOME_EMBED_TITLE = "👋 Chào mừng đến với Dự án của Cá!"
 WELCOME_EMBED_DESCRIPTION_TEMPLATE = (
-    "Chào mừng đến với Dự án của Cá — nơi phát triển các tựa game "
-    "**Flappy Fish** và **Animal Crush**. Mọi thông tin "
+    "Chào mừng đến với Dự án của Cá. Mọi thông tin "
     "cập nhật, hình ảnh và liên kết tải game đều được đăng tải tại đây.\n"
     "\n"
     "🎭 Chọn vai trò của bạn tại {role_pick} — bấm emoji để nhận role.\n"
@@ -1510,9 +1509,8 @@ def _welcome_build_join_embed(guild, member):
     return discord.Embed(
         title=f"👋 Chào mừng {member.display_name} đến với Dự án của Cá!",
         description=(
-            f"{member.mention} ơi, chào mừng bạn đến với Dự án của Cá — nơi "
-            "phát triển các tựa game **Flappy Fish** và "
-            "**Animal Crush**. Mọi thông tin cập nhật, hình ảnh và liên "
+            f"{member.mention} ơi, chào mừng bạn đến với Dự án của Cá. "
+            "Mọi thông tin cập nhật, hình ảnh và liên "
             "kết tải game đều được đăng tải tại đây.\n"
             "\n"
             "🎭 Chọn vai trò của bạn tại "
@@ -1561,10 +1559,11 @@ async def on_member_join(member):
 
 
 async def _welcome_join_legacy_ensure():
-    """Sửa tại chỗ các tin chào mừng người mới CŨ còn ghi tên game cũ
-    'Bé Cá Heartopia': quét #👋・chào-mừng, tin nào do bot đăng, là embed
-    chào người mới (không phải embed tĩnh — cái đó _welcome_ensure lo)
-    mà mô tả còn tên cũ thì sửa thành 'Saigonpia'. Chạy mỗi lần khởi
+    """Sửa tại chỗ các tin chào mừng người mới CŨ còn ghi tên game:
+    quét #👋・chào-mừng, tin nào do bot đăng, là embed chào người mới
+    (không phải embed tĩnh — cái đó _welcome_ensure lo) mà mô tả còn
+    ghi tên game (Saigonpia, Bé Cá Heartopia, Flappy Fish, Animal Crush)
+    thì bỏ hẳn phần tên game, chỉ giữ các ý còn lại. Chạy mỗi lần khởi
     động, đã sửa rồi thì không sửa lại. Lỗi thì chỉ in log, không làm
     bot chết."""
     guild = client.get_guild(ROLE_PICK_GUILD_ID)
@@ -1587,10 +1586,19 @@ async def _welcome_join_legacy_ensure():
                 if (emb.title or "") == WELCOME_EMBED_TITLE:
                     continue  # embed tĩnh, _welcome_ensure tự cập nhật
                 desc = emb.description or ""
-                if "Bé Cá Heartopia" not in desc:
+                # Bỏ hẳn phần tên game khỏi câu chào (An dặn 24/11: không
+                # cần tên game, chỉ giữ các ý còn lại). Các dạng cũ:
+                new_desc = desc
+                for old_phrase in (
+                    " — nơi phát triển các tựa game **Flappy Fish**, **Animal Crush** và **Saigonpia**",
+                    " — nơi phát triển các tựa game **Flappy Fish**, **Animal Crush** và **Bé Cá Heartopia**",
+                    " — nơi phát triển các tựa game **Flappy Fish** và **Animal Crush**",
+                ):
+                    new_desc = new_desc.replace(old_phrase, "")
+                if new_desc == desc:
                     continue
                 new_emb = discord.Embed.from_dict(emb.to_dict())
-                new_emb.description = desc.replace("Bé Cá Heartopia", "Saigonpia")
+                new_emb.description = new_desc
                 try:
                     await msg.edit(embed=new_emb)
                     print(f"welcome-join-legacy: đã sửa tin chào cũ (id {msg.id})")
