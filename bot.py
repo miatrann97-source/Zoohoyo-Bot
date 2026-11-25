@@ -1297,8 +1297,60 @@ async def _role_pick_ensure():
             except discord.DiscordException as e:
                 print(f"role-pick: không thêm được reaction {emoji}: {e}")
         print("role-pick: tin chọn role đã sẵn sàng")
+        await _role_pick_backfill(guild, msg)
     except discord.DiscordException as e:
         print(f"role-pick: lỗi khi chuẩn bị tin chọn role: {e}")
+
+
+async def _role_pick_backfill(guild, msg):
+    """Gắn lại role cho những người đã bấm emoji chọn role từ trước nhưng
+    chưa được gắn (do lỗi tìm role theo tên). Chạy mỗi lần khởi động: quét
+    reaction của tin chọn role, ai bấm emoji nào mà chưa có role đó thì
+    gắn thêm. Người đã có role rồi thì bỏ qua. Lỗi thì chỉ in log."""
+    try:
+        msg = await msg.channel.fetch_message(msg.id)  # làm mới reaction
+    except discord.DiscordException as e:
+        print(f"role-pick backfill: không lấy được tin chọn role: {e}")
+        return
+    for reaction in msg.reactions:
+        role_name = ROLE_PICK_EMOJI.get(str(reaction.emoji))
+        if role_name is None:
+            continue
+        role = _role_pick_find_role(guild, role_name)
+        if role is None:
+            print(f"role-pick backfill: không tìm thấy role {role_name}")
+            continue
+        try:
+            async for user in reaction.users():
+                if user.bot:
+                    continue
+                try:
+                    member = await guild.fetch_member(user.id)
+                except discord.DiscordException as e:
+                    print(f"role-pick backfill: không lấy được member {user.id}: {e}")
+                    continue
+                if role in member.roles:
+                    continue
+                try:
+                    await member.add_roles(role, reason="Bù role đã chọn bằng emoji")
+                    print(f"role-pick backfill: đã thêm role {role_name} cho {member}")
+                except discord.DiscordException as e:
+                    print(f"role-pick backfill: không thêm được role {role_name} cho {member}: {e}")
+        except discord.DiscordException as e:
+            print(f"role-pick backfill: không đọc được reaction {reaction.emoji}: {e}")
+
+
+def _role_pick_find_role(guild, role_name):
+    """Tìm role theo tên. Tên role trong server có thể kèm emoji đằng sau
+    (vd "Dev 🛠️") nên khớp tên chính xác trước, không có thì khớp tên bắt
+    đầu bằng tên role + khoảng trắng. Trả về role hoặc None."""
+    role = discord.utils.get(guild.roles, name=role_name)
+    if role is not None:
+        return role
+    for r in guild.roles:
+        if r.name.startswith(role_name + " "):
+            return r
+    return None
 
 
 async def _role_pick_handle_reaction(payload, add):
@@ -1329,7 +1381,7 @@ async def _role_pick_handle_reaction(payload, add):
         _role_pick_message_id = msg.id
     if payload.message_id != message_id:
         return
-    role = discord.utils.get(guild.roles, name=role_name)
+    role = _role_pick_find_role(guild, role_name)
     if role is None:
         print(f"role-pick: không tìm thấy role {role_name} trong server mới")
         return
