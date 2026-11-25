@@ -1564,6 +1564,47 @@ async def on_member_join(member):
         print(f"welcome-join: lỗi khi chào {member}: {e}")
 
 
+async def _welcome_join_legacy_ensure():
+    """Sửa tại chỗ các tin chào mừng người mới CŨ còn ghi tên game cũ
+    'Bé Cá Heartopia': quét #👋・chào-mừng, tin nào do bot đăng, là embed
+    chào người mới (không phải embed tĩnh — cái đó _welcome_ensure lo)
+    mà mô tả còn tên cũ thì sửa thành 'Saigonpia'. Chạy mỗi lần khởi
+    động, đã sửa rồi thì không sửa lại. Lỗi thì chỉ in log, không làm
+    bot chết."""
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("welcome-join-legacy: không thấy server Dự án của Cá, bỏ qua")
+        return
+    channel = None
+    for ch in guild.text_channels:
+        if WELCOME_CHANNEL_MATCH in ch.name:
+            channel = ch
+            break
+    if channel is None:
+        print("welcome-join-legacy: không tìm thấy kênh chào-mừng")
+        return
+    try:
+        async for msg in channel.history(limit=100):
+            if msg.author.id != client.user.id:
+                continue
+            for emb in msg.embeds or []:
+                if (emb.title or "") == WELCOME_EMBED_TITLE:
+                    continue  # embed tĩnh, _welcome_ensure tự cập nhật
+                desc = emb.description or ""
+                if "Bé Cá Heartopia" not in desc:
+                    continue
+                new_emb = discord.Embed.from_dict(emb.to_dict())
+                new_emb.description = desc.replace("Bé Cá Heartopia", "Saigonpia")
+                try:
+                    await msg.edit(embed=new_emb)
+                    print(f"welcome-join-legacy: đã sửa tin chào cũ (id {msg.id})")
+                except discord.DiscordException as e:
+                    print(f"welcome-join-legacy: không sửa được tin (id {msg.id}): {e}")
+                break  # mỗi tin chỉ có 1 embed chào mừng
+    except discord.DiscordException as e:
+        print(f"welcome-join-legacy: không quét được lịch sử kênh {channel.name}: {e}")
+
+
 # --- Tin lộ trình game (roadmap) ---
 # An dặn 2026-11-24: kênh #🗺️・roadmap phải có nội dung, và từ nay mọi tin
 # trong server đều do chính bot Cá Owner đăng — KHÔNG dùng tài khoản của An
@@ -1932,6 +1973,10 @@ async def on_ready():
         await _welcome_ensure()
     except Exception as e:
         print(f"welcome: khởi tạo tin chào mừng thất bại: {e!r}")
+    try:
+        await _welcome_join_legacy_ensure()
+    except Exception as e:
+        print(f"welcome-join-legacy: sửa tin chào cũ thất bại: {e!r}")
     try:
         await _roadmap_ensure()
     except Exception as e:
