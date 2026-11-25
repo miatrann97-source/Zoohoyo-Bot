@@ -1889,6 +1889,45 @@ async def _legacy_text_ensure():
             print(f"legacy-text: không quét được lịch sử kênh {channel.name}: {e}")
 
 
+FAQ_CHANNEL_MATCH = "faq"  # tìm kênh theo tên, đừng hardcode id
+
+
+async def _faq_ensure():
+    """Đảm bảo kênh #❓・faq có tin liệt kê game (FAQ_QA[0][1]) do bot đăng
+    và đã ghim. Tin cũ bị mất thì đăng mới + ghim; đã có rồi thì chỉ ghim
+    nếu chưa ghim. Chạy mỗi lần khởi động, đã xong rồi thì không làm lại.
+    Lỗi thì chỉ in log, không làm bot chết."""
+    guild = client.get_guild(ROLE_PICK_GUILD_ID)
+    if guild is None:
+        print("faq: không thấy server Dự án của Cá, bỏ qua")
+        return
+    channel = None
+    for ch in guild.text_channels:
+        if FAQ_CHANNEL_MATCH in ch.name:
+            channel = ch
+            break
+    if channel is None:
+        print("faq: không tìm thấy kênh faq")
+        return
+    try:
+        existing = None
+        async for msg in channel.history(limit=100):
+            if msg.author.id == client.user.id and (msg.content or "") == FAQ_QA[0][1]:
+                existing = msg
+                break
+        if existing is None:
+            existing = await channel.send(FAQ_QA[0][1])
+            print(f"faq: đã đăng tin liệt kê game mới (id {existing.id})")
+        if not existing.pinned:
+            try:
+                await existing.pin()
+                print("faq: đã ghim tin liệt kê game")
+            except discord.DiscordException as e:
+                print(f"faq: không ghim được tin liệt kê game: {e}")
+    except discord.DiscordException as e:
+        print(f"faq: không quét/đăng được tin liệt kê game: {e}")
+
+
 # --- Mẫu giới thiệu thành viên mới (#👋・giới-thiệu) ---
 # Tin mẫu cũ do TÀI KHOẢN AN đăng lúc 10:33 24/11 nên bot không sửa được
 # (bot chỉ sửa được tin của chính nó). An duyệt 12:14 24/11: bot XOÁ tin cũ
@@ -1989,6 +2028,10 @@ async def on_ready():
         await _legacy_text_ensure()
     except Exception as e:
         print(f"legacy-text: sửa tin cũ thất bại: {e!r}")
+    try:
+        await _faq_ensure()
+    except Exception as e:
+        print(f"faq: đăng tin liệt kê game thất bại: {e!r}")
     try:
         await _intro_template_ensure()
     except Exception as e:
