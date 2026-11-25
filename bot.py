@@ -69,8 +69,8 @@ FAQ_QA = [
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
         "Liên kết tải game:\n"
-        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
-        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/",
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html?v=2\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/animal-crush.html?v=439",
     ),
     (
         ("báo lỗi", "lỗi", "bug"),
@@ -91,8 +91,8 @@ FAQ_QA = [
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
         "Liên kết tải game:\n"
-        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
-        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/",
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html?v=2\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/animal-crush.html?v=439",
     ),
 ]
 FAQ_COOLDOWN_SECONDS = 60  # mỗi người mỗi mục FAQ chỉ trả lời 1 lần trong 60 giây
@@ -1872,6 +1872,26 @@ LEGACY_TEXT_FIXES = [
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
         "🐟 Saigonpia: https://miatrann97-source.github.io/beca-heartopia/",
+        FAQ_QA[0][1],
+    ),
+    (
+        "faq",  # kênh #❓・faq — tin liệt kê 2 game còn link cũ (không ?v=)
+        "Dự án của Cá hiện có 2 tựa game:\n"
+        "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
+        "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
+        "Liên kết tải game:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/",
+        FAQ_QA[0][1],  # bản mới: link trực tiếp file game + ?v= chống cache cũ
+    ),
+    (
+        "hỏi-đáp",  # kênh #🙋・hỏi-đáp — tin trả lời FAQ 2 game còn link cũ
+        "Dự án của Cá hiện có 2 tựa game:\n"
+        "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
+        "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
+        "Liên kết tải game:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/",
         FAQ_QA[0][1],
     ),
 ]
