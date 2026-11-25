@@ -70,7 +70,7 @@ FAQ_QA = [
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
         "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
-        "🍬 Animal Crush: https://miatrann97-source.github.io/games/",
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/",
     ),
     (
         ("báo lỗi", "lỗi", "bug"),
@@ -92,7 +92,7 @@ FAQ_QA = [
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
         "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
-        "🍬 Animal Crush: https://miatrann97-source.github.io/games/",
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/",
     ),
 ]
 FAQ_COOLDOWN_SECONDS = 60  # mỗi người mỗi mục FAQ chỉ trả lời 1 lần trong 60 giây
