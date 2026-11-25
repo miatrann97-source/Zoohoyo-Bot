@@ -65,14 +65,12 @@ for _n in ("discord.voice_client", "discord.player", "discord.voice_state", "dis
 FAQ_QA = [
     (
         ("tải game", "tải ở đâu", "download", "link game", "chơi ở đâu"),
-        "Dự án của Cá hiện có 3 tựa game:\n"
+        "Dự án của Cá hiện có 2 tựa game:\n"
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
-        "🐟 Saigonpia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
         "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
-        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
-        "🐟 Saigonpia: https://miatrann97-source.github.io/beca-heartopia/",
+        "🍬 Animal Crush: https://miatrann97-source.github.io/games/",
     ),
     (
         ("báo lỗi", "lỗi", "bug"),
@@ -89,14 +87,12 @@ FAQ_QA = [
     ),
     (
         ("game gì", "game của cá", "có game nào"),
-        "Dự án của Cá hiện có 3 tựa game:\n"
+        "Dự án của Cá hiện có 2 tựa game:\n"
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
-        "🐟 Saigonpia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
         "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
-        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
-        "🐟 Saigonpia: https://miatrann97-source.github.io/beca-heartopia/",
+        "🍬 Animal Crush: https://miatrann97-source.github.io/games/",
     ),
 ]
 FAQ_COOLDOWN_SECONDS = 60  # mỗi người mỗi mục FAQ chỉ trả lời 1 lần trong 60 giây
@@ -1379,7 +1375,7 @@ WELCOME_EMBED_COLOR = 0xE91E63  # viền embed hồng nổi bật
 WELCOME_EMBED_TITLE = "👋 Chào mừng đến với Dự án của Cá!"
 WELCOME_EMBED_DESCRIPTION_TEMPLATE = (
     "Chào mừng đến với Dự án của Cá — nơi phát triển các tựa game "
-    "**Flappy Fish**, **Animal Crush** và **Saigonpia**. Mọi thông tin "
+    "**Flappy Fish** và **Animal Crush**. Mọi thông tin "
     "cập nhật, hình ảnh và liên kết tải game đều được đăng tải tại đây.\n"
     "\n"
     "🎭 Chọn vai trò của bạn tại {role_pick} — bấm emoji để nhận role.\n"
@@ -1515,8 +1511,8 @@ def _welcome_build_join_embed(guild, member):
         title=f"👋 Chào mừng {member.display_name} đến với Dự án của Cá!",
         description=(
             f"{member.mention} ơi, chào mừng bạn đến với Dự án của Cá — nơi "
-            "phát triển các tựa game **Flappy Fish**, **Animal Crush** và "
-            "**Saigonpia**. Mọi thông tin cập nhật, hình ảnh và liên "
+            "phát triển các tựa game **Flappy Fish** và "
+            "**Animal Crush**. Mọi thông tin cập nhật, hình ảnh và liên "
             "kết tải game đều được đăng tải tại đây.\n"
             "\n"
             "🎭 Chọn vai trò của bạn tại "
@@ -1847,13 +1843,27 @@ LEGACY_TEXT_FIXES = [
         FAQ_QA[0][1],
     ),
     (
-        "faq",  # kênh #❓・faq — tin ghim liệt kê game còn tên cũ Bé Cá Heartopia
-        FAQ_QA[0][1].replace("🐟 Saigonpia", "🐟 Bé Cá Heartopia"),
-        FAQ_QA[0][1],  # bản liệt kê game với tên Saigonpia
+        "faq",  # kênh #❓・faq — tin ghim liệt kê game 3 tựa còn Saigonpia
+        "Dự án của Cá hiện có 3 tựa game:\n"
+        "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
+        "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
+        "🐟 Saigonpia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
+        "Liên kết tải game:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
+        "🐟 Saigonpia: https://miatrann97-source.github.io/beca-heartopia/",
+        FAQ_QA[0][1],  # bản liệt kê game 2 tựa, bỏ Saigonpia
     ),
     (
-        "hỏi-đáp",  # kênh #🙋・hỏi-đáp — tin trả lời FAQ còn tên cũ
-        FAQ_QA[0][1].replace("🐟 Saigonpia", "🐟 Bé Cá Heartopia"),
+        "hỏi-đáp",  # kênh #🙋・hỏi-đáp — tin trả lời FAQ 3 tựa còn Saigonpia
+        "Dự án của Cá hiện có 3 tựa game:\n"
+        "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
+        "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
+        "🐟 Saigonpia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
+        "Liên kết tải game:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
+        "🐟 Saigonpia: https://miatrann97-source.github.io/beca-heartopia/",
         FAQ_QA[0][1],
     ),
 ]
@@ -1912,12 +1922,19 @@ async def _faq_ensure():
     try:
         existing = None
         async for msg in channel.history(limit=100):
-            if msg.author.id == client.user.id and (msg.content or "") == FAQ_QA[0][1]:
+            if msg.author.id == client.user.id and (msg.content or "").startswith(
+                "Dự án của Cá hiện có"
+            ):
                 existing = msg
                 break
         if existing is None:
             existing = await channel.send(FAQ_QA[0][1])
             print(f"faq: đã đăng tin liệt kê game mới (id {existing.id})")
+        elif (existing.content or "") != FAQ_QA[0][1]:
+            # Nội dung liệt kê game đổi (vd: bỏ Saigonpia): sửa tin cũ tại
+            # chỗ thay vì đăng tin mới, để không bị trùng 2 tin liệt kê.
+            await existing.edit(content=FAQ_QA[0][1])
+            print(f"faq: đã sửa tin liệt kê game tại chỗ (id {existing.id})")
         if not existing.pinned:
             try:
                 await existing.pin()
