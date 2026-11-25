@@ -1894,6 +1894,16 @@ LEGACY_TEXT_FIXES = [
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/",
         FAQ_QA[0][1],
     ),
+    (
+        "hỏi-đáp",  # kênh #🙋・hỏi-đáp — biến thể link Animal Crush trỏ về trang tổng hợp games/
+        "Dự án của Cá hiện có 2 tựa game:\n"
+        "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
+        "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
+        "Liên kết tải game:\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
+        "🍬 Animal Crush: https://miatrann97-source.github.io/games/",
+        FAQ_QA[0][1],
+    ),
 ]
 
 
