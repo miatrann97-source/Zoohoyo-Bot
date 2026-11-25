@@ -1507,6 +1507,63 @@ async def _welcome_ensure():
         print(f"welcome: lỗi khi chuẩn bị tin chào mừng: {e}")
 
 
+def _welcome_build_join_embed(guild, member):
+    """Dựng embed chào mừng riêng cho người mới vào: giống embed chào
+    mừng tĩnh nhưng ghi tên người mới vào tiêu đề + tag họ ở dòng đầu,
+    kèm banner tiệc như bản tĩnh."""
+    return discord.Embed(
+        title=f"👋 Chào mừng {member.display_name} đến với Dự án của Cá!",
+        description=(
+            f"{member.mention} ơi, chào mừng bạn đến với Dự án của Cá — nơi "
+            "phát triển các tựa game **Flappy Fish**, **Animal Crush** và "
+            "**Bé Cá Heartopia**. Mọi thông tin cập nhật, hình ảnh và liên "
+            "kết tải game đều được đăng tải tại đây.\n"
+            "\n"
+            "🎭 Chọn vai trò của bạn tại "
+            f"{_welcome_channel_mention(guild, 'chọn-role')} — bấm emoji để nhận role.\n"
+            f"🎮 Xem game mới nhất tại {_welcome_channel_mention(guild, 'game-của-cá')}\n"
+            f"💬 Trò chuyện cùng cộng đồng tại {_welcome_channel_mention(guild, 'chung')}\n"
+            f"🐛 Báo lỗi game tại {_welcome_channel_mention(guild, 'báo-lỗi')}"
+        ),
+        color=WELCOME_EMBED_COLOR,
+    ).set_footer(text=WELCOME_EMBED_FOOTER)
+
+
+@client.event
+async def on_member_join(member):
+    """Người mới vào server Dự án của Cá: bot đăng tin chào mừng riêng
+    trong #👋・chào-mừng, ghi tên người mới vào embed kèm banner tiệc.
+    Chỉ chào người thật, không chào bot. Lỗi thì chỉ in log, không làm
+    bot chết. (An dặn 19:12 24/11: tên người mới phải hiện trong banner
+    chào mừng; #chung chỉ để chat, không đăng gì vào đó.)"""
+    if member.guild.id != ROLE_PICK_GUILD_ID:
+        return
+    if member.bot:
+        return
+    guild = member.guild
+    channel = None
+    for ch in guild.text_channels:
+        if WELCOME_CHANNEL_MATCH in ch.name:
+            channel = ch
+            break
+    if channel is None:
+        print("welcome-join: không tìm thấy kênh chào-mừng")
+        return
+    try:
+        embed = _welcome_build_join_embed(guild, member)
+        files = []
+        image_path = _welcome_desired_image_path()
+        try:
+            files.append(discord.File(image_path))
+            embed.set_image(url="attachment://" + os.path.basename(image_path))
+        except (OSError, ValueError) as e:
+            print(f"welcome-join: không đọc được ảnh {image_path}: {e}")
+        msg = await channel.send(embed=embed, files=files)
+        print(f"welcome-join: đã chào {member} (id {msg.id})")
+    except discord.DiscordException as e:
+        print(f"welcome-join: lỗi khi chào {member}: {e}")
+
+
 # --- Tin lộ trình game (roadmap) ---
 # An dặn 2026-11-24: kênh #🗺️・roadmap phải có nội dung, và từ nay mọi tin
 # trong server đều do chính bot Cá Owner đăng — KHÔNG dùng tài khoản của An
