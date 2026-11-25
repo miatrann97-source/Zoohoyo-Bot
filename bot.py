@@ -1951,9 +1951,10 @@ FAQ_CHANNEL_MATCH = "faq"  # tìm kênh theo tên, đừng hardcode id
 
 
 async def _faq_ensure():
-    """Đảm bảo kênh #❓・faq có tin liệt kê game (FAQ_QA[0][1]) do bot đăng
-    và đã ghim. Tin cũ bị mất thì đăng mới + ghim; đã có rồi thì chỉ ghim
-    nếu chưa ghim. Chạy mỗi lần khởi động, đã xong rồi thì không làm lại.
+    """Xoá tin liệt kê game cũ ở kênh #❓・faq (An dặn 25/11: dời phần giới
+    thiệu game sang #🎮・game-của-cá, FAQ để dùng việc khác). Tìm tin của
+    bot bắt đầu bằng "Dự án của Cá hiện có", gỡ ghim rồi xoá. Không đăng
+    tin mới vào FAQ. Chạy mỗi lần khởi động, đã xoá rồi thì không làm lại.
     Lỗi thì chỉ in log, không làm bot chết."""
     guild = client.get_guild(ROLE_PICK_GUILD_ID)
     if guild is None:
@@ -1968,29 +1969,21 @@ async def _faq_ensure():
         print("faq: không tìm thấy kênh faq")
         return
     try:
-        existing = None
         async for msg in channel.history(limit=100):
             if msg.author.id == client.user.id and (msg.content or "").startswith(
                 "Dự án của Cá hiện có"
             ):
-                existing = msg
+                try:
+                    if msg.pinned:
+                        await msg.unpin()
+                        print("faq: đã gỡ ghim tin liệt kê game")
+                except discord.DiscordException as e:
+                    print(f"faq: không gỡ ghim được tin liệt kê game: {e}")
+                await msg.delete()
+                print(f"faq: đã xoá tin liệt kê game (id {msg.id})")
                 break
-        if existing is None:
-            existing = await channel.send(FAQ_QA[0][1])
-            print(f"faq: đã đăng tin liệt kê game mới (id {existing.id})")
-        elif (existing.content or "") != FAQ_QA[0][1]:
-            # Nội dung liệt kê game đổi (vd: bỏ Saigonpia): sửa tin cũ tại
-            # chỗ thay vì đăng tin mới, để không bị trùng 2 tin liệt kê.
-            await existing.edit(content=FAQ_QA[0][1])
-            print(f"faq: đã sửa tin liệt kê game tại chỗ (id {existing.id})")
-        if not existing.pinned:
-            try:
-                await existing.pin()
-                print("faq: đã ghim tin liệt kê game")
-            except discord.DiscordException as e:
-                print(f"faq: không ghim được tin liệt kê game: {e}")
     except discord.DiscordException as e:
-        print(f"faq: không quét/đăng được tin liệt kê game: {e}")
+        print(f"faq: không xoá được tin liệt kê game: {e}")
 
 
 # --- Mẫu giới thiệu thành viên mới (#👋・giới-thiệu) ---
