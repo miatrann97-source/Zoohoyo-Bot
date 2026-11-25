@@ -69,7 +69,7 @@ FAQ_QA = [
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
         "Liên kết tải game:\n"
-        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html?v=2\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html?v=3\n"
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/animal-crush.html?v=439",
     ),
     (
@@ -91,7 +91,7 @@ FAQ_QA = [
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
         "Liên kết tải game:\n"
-        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html?v=2\n"
+        "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html?v=3\n"
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/animal-crush.html?v=439",
     ),
 ]
