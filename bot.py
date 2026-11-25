@@ -68,11 +68,11 @@ FAQ_QA = [
         "Dự án của Cá hiện có 3 tựa game:\n"
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
-        "🐟 Bé Cá Heartopia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
+        "🐟 Saigonpia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
         "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
-        "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
+        "🐟 Saigonpia: https://miatrann97-source.github.io/beca-heartopia/",
     ),
     (
         ("báo lỗi", "lỗi", "bug"),
@@ -92,11 +92,11 @@ FAQ_QA = [
         "Dự án của Cá hiện có 3 tựa game:\n"
         "🎮 Flappy Fish — Arcade casual: điều khiển nhân vật cá vượt chướng ngại vật, thu thập vỏ sò, thử thách hằng ngày.\n"
         "🍬 Animal Crush — Match-3: 50 màn chơi, cốt truyện 16 chương, hệ thống boss.\n"
-        "🐟 Bé Cá Heartopia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
+        "🐟 Saigonpia — Mô phỏng cuộc sống 3D tại Sài Gòn (đang phát triển).\n"
         "Liên kết tải game:\n"
         "🎮 Flappy Fish: https://miatrann97-source.github.io/flappy-fish/flappy-fish.html\n"
         "🍬 Animal Crush: https://miatrann97-source.github.io/animal-crush/\n"
-        "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
+        "🐟 Saigonpia: https://miatrann97-source.github.io/beca-heartopia/",
     ),
 ]
 FAQ_COOLDOWN_SECONDS = 60  # mỗi người mỗi mục FAQ chỉ trả lời 1 lần trong 60 giây
@@ -1379,7 +1379,7 @@ WELCOME_EMBED_COLOR = 0xE91E63  # viền embed hồng nổi bật
 WELCOME_EMBED_TITLE = "👋 Chào mừng đến với Dự án của Cá!"
 WELCOME_EMBED_DESCRIPTION_TEMPLATE = (
     "Chào mừng đến với Dự án của Cá — nơi phát triển các tựa game "
-    "**Flappy Fish**, **Animal Crush** và **Bé Cá Heartopia**. Mọi thông tin "
+    "**Flappy Fish**, **Animal Crush** và **Saigonpia**. Mọi thông tin "
     "cập nhật, hình ảnh và liên kết tải game đều được đăng tải tại đây.\n"
     "\n"
     "🎭 Chọn vai trò của bạn tại {role_pick} — bấm emoji để nhận role.\n"
@@ -1516,7 +1516,7 @@ def _welcome_build_join_embed(guild, member):
         description=(
             f"{member.mention} ơi, chào mừng bạn đến với Dự án của Cá — nơi "
             "phát triển các tựa game **Flappy Fish**, **Animal Crush** và "
-            "**Bé Cá Heartopia**. Mọi thông tin cập nhật, hình ảnh và liên "
+            "**Saigonpia**. Mọi thông tin cập nhật, hình ảnh và liên "
             "kết tải game đều được đăng tải tại đây.\n"
             "\n"
             "🎭 Chọn vai trò của bạn tại "
@@ -1805,11 +1805,21 @@ LEGACY_TEXT_FIXES = [
         "🐟 Bé Cá Heartopia: https://miatrann97-source.github.io/beca-heartopia/",
         FAQ_QA[0][1],
     ),
+    (
+        "faq",  # kênh #❓・faq — tin ghim liệt kê game còn tên cũ Bé Cá Heartopia
+        FAQ_QA[0][1].replace("🐟 Saigonpia", "🐟 Bé Cá Heartopia"),
+        FAQ_QA[0][1],  # bản liệt kê game với tên Saigonpia
+    ),
+    (
+        "hỏi-đáp",  # kênh #🙋・hỏi-đáp — tin trả lời FAQ còn tên cũ
+        FAQ_QA[0][1].replace("🐟 Saigonpia", "🐟 Bé Cá Heartopia"),
+        FAQ_QA[0][1],
+    ),
 ]
 
 
 async def _legacy_text_ensure():
-    """Sửa tại chỗ 3 tin cũ trong LEGACY_TEXT_FIXES: quét lịch sử từng
+    """Sửa tại chỗ các tin cũ trong LEGACY_TEXT_FIXES: quét lịch sử từng
     kênh, tin nào do chính bot đăng và có đúng nội dung cũ thì sửa thành
     nội dung mới. Chạy mỗi lần khởi động, đã sửa rồi thì không sửa lại.
     Lỗi thì chỉ in log, không làm bot chết."""
