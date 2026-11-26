@@ -1693,7 +1693,7 @@ def _roadmap_build_embed(guild):
     embed.add_field(
         name="🍬 Animal Crush",
         value=(
-            "✅ Phiên bản 32.37 đã ra mắt: https://miatrann97-source.github.io/animal-crush/ — 50 màn chơi, boss Quái Kẹo Dẻo, cốt truyện 16 chương\n"
+            "✅ Phiên bản 2 đã ra mắt: https://miatrann97-source.github.io/animal-crush/ — 50 màn chơi, boss Quái Kẹo Dẻo, cốt truyện 16 chương\n"
             f"⏳ Màn chơi mới sẽ được thông báo tại {_welcome_channel_mention(guild, 'cập-nhật')}"
         ),
         inline=False,
